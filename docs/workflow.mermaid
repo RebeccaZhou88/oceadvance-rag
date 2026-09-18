@@ -1,0 +1,19 @@
+%%{init: {'flowchart': {'curve': 'linear'}}}%%
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	intent_check_node(intent_check_node)
+	retrieve_docs_node(retrieve_docs_node)
+	rerank_sequence_node(rerank_sequence_node)
+	generate_answer_node(generate_answer_node)
+	evaluate_answer_node(evaluate_answer_node)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> intent_check_node;
+	evaluate_answer_node --> __end__;
+	generate_answer_node --> evaluate_answer_node;
+	rerank_sequence_node --> generate_answer_node;
+	retrieve_docs_node --> rerank_sequence_node;
+	intent_check_node -.-> retrieve_docs_node;
+	intent_check_node -.-> generate_answer_node;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: ops-rag-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["rag-api:8000"]
+
+# 告警规则（P95 > 5s 等）可在 alerting 段补充 Alertmanager

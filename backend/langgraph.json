@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "http": {
+    "app": "./src/app/main.py:app"
+  },
+  "env": ".env",
+  "python_version": "3.11"
+}

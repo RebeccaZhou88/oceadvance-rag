@@ -1,0 +1,5 @@
+{"id": "q1", "question": "如何排查 SharePoint 高延迟问题？", "user_group": "sre", "ground_truth": "首先检查应用网关后端池健康状态与 P95 延迟，再排查 Kusto AppGwLogs 中的 failedReqRatio。", "context": "SharePoint 高延迟排查：检查应用网关后端池、P95 延迟、AppGwLogs.failedReqRatio"}
+{"id": "q2", "question": "Kusto 如何查询应用网关失败请求比例？", "user_group": "dev", "ground_truth": "使用 AppGwLogs 表，按 backend 汇总 failedReqRatio，时间窗口 5 分钟。", "context": "AppGwLogs | summarize failedReqRatio = round(failed/total,3) by backend, bin(time,5m)"}
+{"id": "q3", "question": "数据库连接池耗尽后如何恢复？", "user_group": "sre", "ground_truth": "先扩容连接池上限并重启受影响实例，再排查长事务与未释放连接的代码路径。", "context": "连接池耗尽复盘：扩容上限、重启实例、定位长事务与连接泄漏"}
+{"id": "q4", "question": "IcM 事件 P1 的处置流程是什么？", "user_group": "sre", "ground_truth": "P1 事件需在 5 分钟内 ack，值班指挥拉通 on-call，按 mitigated -> resolved 推进。", "context": "IcM P1 处置：5 分钟 ack、值班指挥拉通、mitigated -> resolved"}
+{"id": "q5", "question": "你好，今天天气怎么样？", "user_group": "ops", "ground_truth": "这是一个闲聊问题，助手应识别为 chitchat 并礼貌回应，不触发检索。", "context": ""}

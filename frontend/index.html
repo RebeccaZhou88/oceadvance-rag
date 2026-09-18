@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运维知识库 Advanced RAG 助手</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --user-bg: #1f6feb;
+    --bot-bg: #21262d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; min-height: 100vh; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  /* 顶栏 */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .header-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--border); color: var(--muted);
+    font-family: "Cascadia Code", Consolas, monospace;
+  }
+  .tag.ok { background: rgba(63,185,80,0.15); color: var(--green); }
+  .tag.warn { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .tag.accent { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .spacer { flex: 1; }
+  .btn {
+    background: var(--border); color: var(--text); border: 1px solid var(--border);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  .btn:hover { background: #30363d; }
+
+  /* 主体三栏 */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: auto;
+    min-width: 900px;
+  }
+  .col { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+  .right-col { display: grid; grid-template-rows: 1.2fr 1fr; gap: 1px; background: var(--border); }
+
+  .panel-header {
+    background: var(--panel);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 8px;
+    flex-shrink: 0;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.green { background: var(--green); }
+
+  /* 对话区 */
+  .chat-area { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user-bg); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--bot-bg); border: 1px solid var(--border); }
+  .msg.system { align-self: center; background: transparent; color: var(--muted); font-size: 11px; border: 1px dashed var(--border); border-radius: 6px; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: "Cascadia Code", Consolas, monospace; }
+  /* bot 回复折叠:默认收起,点标题展开 */
+  .msg.bot .bot-head {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    color: var(--accent); font-size: 12px; font-weight: 600;
+    padding: 2px 0 4px; user-select: none;
+  }
+  .msg.bot .bot-head:hover { color: #fff; }
+  .msg.bot .bot-head .bot-toggle { color: var(--muted); font-size: 10px; transition: transform 0.15s; }
+  .msg.bot.collapsed .bot-head .bot-toggle { transform: rotate(-90deg); }
+  .msg.bot.collapsed .bot-body { display: none; }
+  .cite-header {
+    background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.2);
+    border-radius: 6px; padding: 6px 10px; margin-bottom: 6px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    font-size: 12px;
+  }
+  .cite-header-label { color: var(--accent); font-weight: 600; margin-right: 4px; }
+  .answer-text {
+    background: transparent; border: none; color: var(--text);
+    font-size: 13px; line-height: 1.45;
+    font-family: inherit; padding: 0; margin: 0 0 6px 0;
+  }
+  /* markdown 渲染样式 — 压缩行距 */
+  .answer-text h1, .answer-text h2, .answer-text h3, .answer-text h4 { color: #e6edf3; margin: 8px 0 4px; line-height: 1.3; }
+  .answer-text h1 { font-size: 15px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+  .answer-text h2 { font-size: 14px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+  .answer-text h3 { font-size: 13px; }
+  .answer-text p { margin: 3px 0; }
+  .answer-text ul, .answer-text ol { margin: 3px 0; padding-left: 20px; }
+  .answer-text li { margin: 1px 0; }
+  .answer-text code {
+    background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px;
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12px;
+  }
+  .answer-text pre {
+    background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; margin: 6px 0; overflow-x: auto;
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; line-height: 1.5;
+  }
+  .answer-text pre code { background: transparent; padding: 0; }
+  .answer-text blockquote {
+    border-left: 3px solid var(--border); color: var(--muted);
+    padding: 2px 8px; margin: 4px 0; font-style: italic;
+  }
+  .answer-text hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+  .answer-text strong { color: #e6edf3; }
+  .answer-text em { color: var(--purple); }
+  .answer-text .cite-link { vertical-align: baseline; }
+  .cite-panels-hidden { display: none !important; }
+  .cite-links { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .cite-link {
+    background: rgba(88,166,255,0.1); color: var(--accent); border: 1px solid rgba(88,166,255,0.25);
+    padding: 2px 8px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: 600;
+    text-decoration: none; font-family: "Cascadia Code", Consolas, monospace;
+    transition: background 0.1s;
+  }
+  .cite-link:hover { background: rgba(88,166,255,0.2); }
+  .cite-link.active { background: rgba(88,166,255,0.3); border-color: var(--accent); color: #fff; }
+  .cite-panels { margin-top: 8px; display: flex; flex-direction: column; gap: 0; }
+  .cite-panel {
+    border: 1px solid var(--border); border-radius: 6px; margin-top: 6px;
+    overflow: hidden; background: rgba(255,255,255,0.02);
+  }
+  .cite-panel-head {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: #1c2128; font-size: 11px; font-family: "Cascadia Code", Consolas, monospace;
+    cursor: pointer; user-select: none;
+  }
+  .cite-idx { color: var(--accent); font-weight: 700; }
+  .cite-src { color: var(--purple); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cite-cat { color: var(--muted); margin-right: 8px; }
+  .cite-score { color: var(--yellow); margin-right: 10px; }
+  .cite-toggle { color: var(--muted); font-size: 10px; transition: transform 0.15s; }
+  .cite-panel.open .cite-toggle { transform: rotate(180deg); }
+  .cite-panel-body {
+    display: none; padding: 10px 12px; font-size: 12px; line-height: 1.6;
+    color: var(--text); white-space: pre-wrap; border-top: 1px solid var(--border);
+  }
+  .cite-panel.open .cite-panel-body { display: block; }
+
+  .input-area {
+    border-top: 1px solid var(--border); background: var(--panel);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;
+  }
+  .input-row { display: flex; gap: 16px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .field select, .field input[type="text"], .field textarea {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 6px; font-size: 13px; font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  #userGroup { width: 140px; }
+  #sessionId { width: 180px; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+  .question-field { flex: 1; }
+  .input-row-spacer { flex: 1; }
+  .input-area .btn {
+    background: var(--border); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; height: 36px;
+  }
+  .input-area .btn:hover { background: #484f58; border-color: #484f58; }
+  #question { width: 100%; }
+  .send-btn {
+    background: var(--accent); color: #fff; border: none; padding: 8px 18px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; height: 36px;
+  }
+  .send-btn:hover { background: #4c93f8; }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* trace 区 */
+  .trace-area { flex: 1; overflow-y: auto; padding: 12px; }
+  .trace-step {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 10px; overflow: hidden;
+  }
+  .trace-head {
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; user-select: none;
+  }
+  .trace-head:hover { background: #1c2128; }
+  .step-name { font-weight: 600; font-size: 13px; font-family: "Cascadia Code", Consolas, monospace; }
+  .step-status { font-size: 11px; padding: 1px 7px; border-radius: 8px; }
+  .step-status.ok { background: rgba(63,185,80,0.15); color: var(--green); }
+  .step-status.skipped { background: rgba(139,148,158,0.15); color: var(--muted); }
+  .step-status.error { background: rgba(248,81,73,0.15); color: var(--red); }
+  .step-duration { font-size: 11px; color: var(--muted); margin-left: auto; font-family: monospace; }
+  .trace-body { padding: 0 12px 12px; font-size: 12px; display: none; }
+  .trace-step.expanded .trace-body { display: block; }
+  .trace-step.expanded .trace-arrow { transform: rotate(90deg); }
+  .trace-arrow { color: var(--muted); transition: transform 0.15s; font-size: 10px; }
+  .kv { display: flex; gap: 8px; margin: 3px 0; font-family: "Cascadia Code", Consolas, monospace; }
+  .kv .k { color: var(--purple); min-width: 130px; }
+  .kv .v { color: var(--text); word-break: break-all; }
+  .rerank-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 11px; font-family: monospace; }
+  .rerank-table th, .rerank-table td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; }
+  .rerank-table th { background: #1c2128; color: var(--muted); }
+  .rerank-table tr.kept td { background: rgba(63,185,80,0.06); }
+  .rerank-table tr.eliminated td { background: rgba(248,81,73,0.06); color: var(--muted); }
+  .change-up { color: var(--green); }
+  .change-down { color: var(--red); }
+  .change-same { color: var(--muted); }
+
+  /* metrics 区 */
+  .metrics-area { flex: 1; overflow-y: auto; padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .metric-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px;
+  }
+  .metric-name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric-value { font-size: 22px; font-weight: 700; margin-top: 4px; font-family: "Cascadia Code", Consolas, monospace; }
+  .metric-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .metric-card.accent .metric-value { color: var(--accent); }
+  .metric-card.green .metric-value { color: var(--green); }
+  .metric-card.yellow .metric-value { color: var(--yellow); }
+
+  .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 40px 0; }
+  .loading { color: var(--muted); font-size: 12px; padding: 8px 0; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>运维知识库 Advanced RAG 助手</h1>
+  <div class="header-tags" id="headerTags">
+    <span class="tag">连接中…</span>
+  </div>
+  <div class="spacer"></div>
+</header>
+
+<main>
+  <!-- 左：对话 -->
+  <div class="col">
+    <div class="panel-header"><span class="dot green"></span> 对话</div>
+    <div class="chat-area" id="chatArea">
+      <div class="msg system">已连接。选择用户组后输入问题开始测试。</div>
+    </div>
+    <div class="input-area">
+      <div class="input-row">
+        <div class="field">
+          <label for="userGroup">用户组</label>
+          <select id="userGroup" title="用户组（影响权限过滤）">
+            <option value="sre">sre（全权限）</option>
+            <option value="dev">dev（部分）</option>
+            <option value="ops">ops（部分）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sessionId">会话 ID</label>
+          <input type="text" id="sessionId" placeholder="session_id" value="web-1">
+        </div>
+        <div class="input-row-spacer"></div>
+        <button class="btn" onclick="clearChat()">清空对话</button>
+        <button class="btn" onclick="refreshMetrics()">刷新指标</button>
+      </div>
+      <div class="input-row">
+        <div class="field question-field">
+          <label for="question">问题</label>
+          <textarea id="question" placeholder="输入问题…（如：如何排查 SharePoint 高延迟?）回车发送，Shift+回车换行" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendQuestion()}"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn" onclick="sendQuestion()">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：trace + metrics -->
+  <div class="right-col">
+    <div class="col">
+      <div class="panel-header"><span class="dot green"></span> 编排步骤日志（含重排过程）</div>
+      <div class="trace-area" id="traceArea">
+        <div class="empty">发送问题后，这里会展示每个节点的执行日志</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel-header"><span class="dot green"></span> 可观测性指标</div>
+      <div class="metrics-area" id="metricsArea">
+        <div class="empty">点击右上「刷新指标」加载</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '';
+let sessionUserGroup = 'sre';
+
+// ===== 初始化 =====
+async function init() {
+  await loadConfig();
+  await refreshMetrics();
+  setInterval(refreshMetrics, 5000);
+}
+window.addEventListener('load', init);
+
+// ===== 加载配置 =====
+async function loadConfig() {
+  try {
+    const r = await fetch(API + '/config');
+    const c = await r.json();
+    const tags = document.getElementById('headerTags');
+    const backendTag = c.backend === 'azure'
+      ? `<span class="tag ok">backend: azure</span>`
+      : `<span class="tag warn">backend: mock</span>`;
+    tags.innerHTML = `
+      ${backendTag}
+      <span class="tag accent">rerank: ${c.rerank_strategy}</span>
+      <span class="tag">hybrid_top_k: ${c.hybrid_top_k}</span>
+      <span class="tag">final_top_k: ${c.final_top_k}</span>
+      <span class="tag">rrf_k: ${c.rrf_k}</span>
+      <span class="tag">chat: ${c.chat_deployment}</span>
+    `;
+  } catch (e) {
+    document.getElementById('headerTags').innerHTML = `<span class="tag" style="color:var(--red)">配置加载失败</span>`;
+  }
+}
+
+// ===== 发送问题 =====
+async function sendQuestion() {
+  const q = document.getElementById('question').value.trim();
+  if (!q) return;
+  const group = document.getElementById('userGroup').value;
+  const sid = document.getElementById('sessionId').value || 'web-1';
+  sessionUserGroup = group;
+
+  addMessage('user', q);
+  document.getElementById('question').value = '';
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.textContent = '思考中…';
+
+  // 占位
+  const loadingId = addMessage('bot', '正在检索与生成…');
+
+  try {
+    const r = await fetch(API + '/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: q, user_group: group, session_id: sid}),
+    });
+    const data = await r.json();
+    // 替换占位
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.remove();
+    renderBotMessage(data);
+    renderTrace(data.trace || []);
+  } catch (e) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.innerHTML = `<span style="color:var(--red)">请求失败: ${e}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '发送';
+  }
+}
+
+// ===== 渲染消息 =====
+let msgCounter = 0;
+function addMessage(role, text) {
+  const area = document.getElementById('chatArea');
+  const div = document.createElement('div');
+  const id = 'msg-' + (msgCounter++);
+  div.id = id;
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return id;
+}
+
+function renderBotMessage(data) {
+  const area = document.getElementById('chatArea');
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  const msgId = 'msg-' + (msgCounter - 1);
+
+  // ===== 折叠头:默认收起,点击展开/关闭 =====
+  const head = document.createElement('div');
+  head.className = 'bot-head';
+  head.innerHTML = `<span class="bot-toggle">▼</span><span>Response:</span>`;
+  head.addEventListener('click', () => div.classList.toggle('collapsed'));
+  div.appendChild(head);
+
+  // ===== bot-body:默认隐藏,展开后显示 =====
+  const body = document.createElement('div');
+  body.className = 'bot-body';
+
+  // ===== answer: 用 marked 渲染 markdown,并把 [N] 替换成超链接 =====
+  const answerWrap = document.createElement('div');
+  answerWrap.className = 'answer-text';
+  let answerHtml = data.answer;
+  if (typeof marked !== 'undefined') {
+    answerHtml = marked.parse(answerHtml);
+  } else {
+    answerHtml = escapeHtml(answerHtml);
+  }
+  // 把 answer 里的 [N] (不是已被 markdown 链接化的) 替换成超链接
+  answerHtml = answerHtml.replace(/\[(\d+)\](?!\()/g, (m, n) => {
+    const idx = parseInt(n, 10) - 1;
+    if (data.citations && data.citations[idx]) {
+      const c = data.citations[idx];
+      return `<a href="javascript:void(0)" class="cite-link" data-idx="${idx}" title="${escapeHtml(c.source)} | ${escapeHtml(c.category)} | score ${c.score.toFixed(4)}">[${n}]</a>`;
+    }
+    return m;
+  });
+  answerWrap.innerHTML = answerHtml;
+  body.appendChild(answerWrap);
+
+  // ===== 依据头:放在 answer 下面 =====
+  if (data.citations && data.citations.length) {
+    const citeHeader = document.createElement('div');
+    citeHeader.className = 'cite-header';
+    citeHeader.innerHTML = '<span class="cite-header-label">依据:</span> ' +
+      data.citations.map((c, i) => {
+        return `<a href="javascript:void(0)" class="cite-link" data-idx="${i}" title="${escapeHtml(c.source)} | ${escapeHtml(c.category)} | score ${c.score.toFixed(4)}">[${i+1}] ${escapeHtml(c.source.split(/[\\/]/).pop())}</a>`;
+      }).join('');
+    body.appendChild(citeHeader);
+  }
+
+  // ===== 引用面板(默认全部隐藏,点击依据后只显示对应那一个) =====
+  if (data.citations && data.citations.length) {
+    const citations = data.citations;
+    const panels = document.createElement('div');
+    panels.className = 'cite-panels cite-panels-hidden';
+    panels.id = `panels-${msgCounter-1}`;
+
+    // 面板:每个默认 display:none
+    const panelRefs = [];
+    citations.forEach((c, i) => {
+      const panel = document.createElement('div');
+      panel.className = 'cite-panel';
+      panel.id = `cite-panel-${msgCounter-1}-${i}`;
+      panel.style.display = 'none';
+      panel.innerHTML = `
+        <div class="cite-panel-head">
+          <span class="cite-idx">[${i+1}]</span>
+          <span class="cite-src">${escapeHtml(c.source)}</span>
+          <span class="cite-cat">${escapeHtml(c.category)}</span>
+          <span class="cite-score">score: ${c.score.toFixed(4)}</span>
+          <span class="cite-toggle">▼</span>
+        </div>
+        <div class="cite-panel-body">${escapeHtml(c.snippet)}</div>
+      `;
+      // 面板头部点击:等价于点对应依据链接
+      panel.querySelector('.cite-panel-head').addEventListener('click', () => {
+        togglePanel(i);
+      });
+      panelRefs.push(panel);
+      panels.appendChild(panel);
+    });
+    body.appendChild(panels);
+
+    // 核心:切换第 idx 个面板可见,其余隐藏
+    let currentIdx = -1;
+    function togglePanel(idx) {
+      panels.classList.remove('cite-panels-hidden');
+      if (currentIdx === idx) {
+        // 已显示的再点一次 → 全部隐藏
+        panelRefs.forEach(p => { p.style.display = 'none'; p.classList.remove('open'); });
+        div.querySelectorAll('.cite-link').forEach(el => el.classList.remove('active'));
+        currentIdx = -1;
+      } else {
+        // 只显示 idx,其余全藏
+        panelRefs.forEach((p, i) => {
+          if (i === idx) {
+            p.style.display = '';
+            p.classList.add('open');
+          } else {
+            p.style.display = 'none';
+            p.classList.remove('open');
+          }
+        });
+        div.querySelectorAll('.cite-link').forEach(el => el.classList.remove('active'));
+        div.querySelectorAll(`.cite-link[data-idx="${idx}"]`).forEach(el => el.classList.add('active'));
+        currentIdx = idx;
+      }
+    }
+
+    // 绑定所有 cite-link(answer 里 + 依据头里的)点击事件
+    div.addEventListener('click', (ev) => {
+      const link = ev.target.closest('.cite-link');
+      if (!link) return;
+      const idx = parseInt(link.dataset.idx, 10);
+      if (isNaN(idx)) return;
+      ev.preventDefault();
+      togglePanel(idx);
+    });
+  }
+
+  // 元信息
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = `latency: ${data.latency_ms.toFixed(0)}ms | tokens: ${data.input_tokens}→${data.output_tokens} | docs: ${data.retrieved_docs_count} | citations: ${(data.citations||[]).length}`;
+  body.appendChild(meta);
+
+  div.appendChild(body);
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function clearChat() {
+  document.getElementById('chatArea').innerHTML = '<div class="msg system">已清空。</div>';
+  document.getElementById('traceArea').innerHTML = '<div class="empty">发送问题后，这里会展示每个节点的执行日志</div>';
+}
+
+// ===== 渲染 trace =====
+function renderTrace(trace) {
+  const area = document.getElementById('traceArea');
+  area.innerHTML = '';
+  if (!trace.length) {
+    area.innerHTML = '<div class="empty">本次请求无步骤日志</div>';
+    return;
+  }
+  trace.forEach(step => {
+    const card = document.createElement('div');
+    card.className = 'trace-step';
+
+    const head = document.createElement('div');
+    head.className = 'trace-head';
+    head.onclick = () => card.classList.toggle('expanded');
+    head.innerHTML = `
+      <span class="trace-arrow">▶</span>
+      <span class="step-name">${step.step}</span>
+      <span class="step-status ${step.status}">${step.status}</span>
+      <span class="step-duration">${step.duration_ms.toFixed(2)} ms</span>
+    `;
+    card.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'trace-body';
+
+    const d = step.detail || {};
+    // 通用键值
+    const skipKeys = new Set(['before','after','rank_changes','eliminated']);
+    for (const [k, v] of Object.entries(d)) {
+      if (skipKeys.has(k)) continue;
+      const kv = document.createElement('div');
+      kv.className = 'kv';
+      const vv = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      kv.innerHTML = `<span class="k">${k}</span><span class="v">${escapeHtml(vv)}</span>`;
+      body.appendChild(kv);
+    }
+
+    // 重排前后对比表
+    if (step.step === 'rerank_sequence' && (d.before || d.after)) {
+      body.appendChild(renderRerankTable(d));
+    }
+    // 检索召回列表
+    if (step.step === 'retrieve_docs' && d.before) {
+      body.appendChild(renderRecallList(d));
+    }
+
+    card.appendChild(body);
+    area.appendChild(card);
+  });
+  // 默认展开 rerank
+  const rerankCard = area.querySelector('.trace-step:nth-child(3)');
+  // 不强制，让用户点
+}
+
+function renderRecallList(d) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">召回文档（按 RRF 分数降序）:</div>';
+  const tbl = document.createElement('table');
+  tbl.className = 'rerank-table';
+  tbl.innerHTML = `<thead><tr><th>#</th><th>doc_id</th><th>category</th><th>RRF score</th></tr></thead>`;
+  const tb = document.createElement('tbody');
+  (d.before || []).forEach((doc, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(doc.doc_id)}</td><td>${escapeHtml(doc.category)}</td><td>${doc.score.toFixed(6)}</td>`;
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);
+  wrap.appendChild(tbl);
+  return wrap;
+}
+
+function renderRerankTable(d) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">重排前后对比（绿=保留，红=淘汰）:</div>';
+  const tbl = document.createElement('table');
+  tbl.className = 'rerank-table';
+  tbl.innerHTML = `<thead><tr><th>新排名</th><th>旧排名</th><th>doc_id</th><th>category</th><th>原分数</th><th>重排分数</th><th>变化</th></tr></thead>`;
+  const tb = document.createElement('tbody');
+  const afterIds = (d.after || []).map(x => x.doc_id);
+  // 合并 before + after，去重保序
+  const allIds = [];
+  (d.before || []).forEach(x => { if (!allIds.includes(x.doc_id)) allIds.push(x.doc_id); });
+  (d.after || []).forEach(x => { if (!allIds.includes(x.doc_id)) allIds.push(x.doc_id); });
+
+  const beforeMap = {};
+  (d.before || []).forEach((x, i) => beforeMap[x.doc_id] = {rank: i+1, ...x});
+  const afterMap = {};
+  (d.after || []).forEach((x, i) => afterMap[x.doc_id] = {rank: i+1, ...x});
+
+  // 按重排后排名排序（afterMap.rank），没在 after 里的兜底排到最后
+  allIds.sort((a, b) => {
+    const ra = afterMap[a]?.rank ?? 999;
+    const rb = afterMap[b]?.rank ?? 999;
+    return ra - rb;
+  });
+
+  const topK = d.final_top_k || 0;
+  allIds.forEach(did => {
+    const inAfter = did in afterMap;
+    const inBefore = did in beforeMap;
+    const a = afterMap[did] || {};
+    const b = beforeMap[did] || {};
+    // 分界线：after 里且排名 <= topK = 保留，否则淘汰
+    const kept = inAfter && topK > 0 && a.rank <= topK;
+    const tr = document.createElement('tr');
+    tr.className = kept ? 'kept' : 'eliminated';
+    let changeStr = '';
+    if (kept && inBefore) {
+      const diff = b.rank - a.rank;
+      if (diff > 0) changeStr = `<span class="change-up">↑${diff}</span>`;
+      else if (diff < 0) changeStr = `<span class="change-down">↓${-diff}</span>`;
+      else changeStr = `<span class="change-same">—</span>`;
+    } else if (kept) {
+      changeStr = `<span class="change-up">新进入</span>`;
+    } else {
+      changeStr = `<span class="change-down">淘汰</span>`;
+    }
+    tr.innerHTML = `
+      <td>${a.rank || '-'}</td>
+      <td>${b.rank || '-'}</td>
+      <td>${escapeHtml(did)}</td>
+      <td>${escapeHtml((a.category||b.category||''))}</td>
+      <td>${b.score !== undefined ? b.score.toFixed(6) : '-'}</td>
+      <td>${a.score !== undefined ? a.score.toFixed(6) : '-'}</td>
+      <td>${changeStr}</td>
+    `;
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);
+
+  const info = document.createElement('div');
+  info.style.cssText = 'margin-top:6px;font-size:11px;color:var(--muted);font-family:monospace;';
+  info.textContent = `策略=${d.strategy} | 输入${d.input_count}条 → 输出${d.output_count}条 (top_k=${d.final_top_k}) | 淘汰${(d.eliminated||[]).length}条`;
+  wrap.appendChild(info);
+  wrap.appendChild(tbl);
+  return wrap;
+}
+
+// ===== metrics =====
+async function refreshMetrics() {
+  try {
+    const r = await fetch(API + '/metrics');
+    const text = await r.text();
+    const m = parsePrometheus(text);
+    renderMetrics(m);
+  } catch (e) {
+    document.getElementById('metricsArea').innerHTML = `<div class="empty">指标加载失败</div>`;
+  }
+}
+
+function parsePrometheus(text) {
+  const m = {};
+  text.split('\n').forEach(line => {
+    if (!line || line.startsWith('#')) return;
+    const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{([^}]*)\})?\s+([\d.eE+-]+)$/);
+    if (!match) return;
+    const name = match[1];
+    const labels = match[3] || '';
+    const value = parseFloat(match[4]);
+    if (!m[name]) m[name] = [];
+    m[name].push({labels, value});
+  });
+  return m;
+}
+
+function getMetric(m, name, labelFilter='') {
+  if (!m[name]) return null;
+  const found = m[name].find(x => !labelFilter || x.labels.includes(labelFilter));
+  return found ? found.value : null;
+}
+
+function sumMetric(m, name) {
+  if (!m[name]) return 0;
+  return m[name].reduce((s, x) => s + x.value, 0);
+}
+
+function renderMetrics(m) {
+  const area = document.getElementById('metricsArea');
+  const reqs = getMetric(m, 'ops_rag_requests_total', 'status="ok"') || 0;
+  const reqsFb = getMetric(m, 'ops_rag_requests_total', 'status="feedback"') || 0;
+  const latCount = getMetric(m, 'ops_rag_request_latency_seconds_count') || 0;
+  const latSum = getMetric(m, 'ops_rag_request_latency_seconds_sum') || 0;
+  const avgLat = latCount > 0 ? (latSum / latCount * 1000) : 0;
+  const hits = getMetric(m, 'ops_rag_retrieval_hits') || 0;
+  const hitRatio = getMetric(m, 'ops_rag_retrieval_hit_ratio') || 0;
+  const tokIn = sumMetric(m, 'ops_rag_token_usage_total') > 0
+    ? (m['ops_rag_token_usage_total'].find(x => x.labels.includes('input'))?.value || 0) : 0;
+  const tokOut = m['ops_rag_token_usage_total']
+    ? (m['ops_rag_token_usage_total'].find(x => x.labels.includes('output'))?.value || 0) : 0;
+  const cost = getMetric(m, 'ops_rag_token_cost_usd') || 0;
+  const rerankCount = getMetric(m, 'ops_rag_rerank_latency_seconds_count') || 0;
+  const rerankSum = getMetric(m, 'ops_rag_rerank_latency_seconds_sum') || 0;
+  const avgRerank = rerankCount > 0 ? (rerankSum / rerankCount * 1000) : 0;
+  const llmCount = getMetric(m, 'ops_rag_llm_latency_seconds_count') || 0;
+  const llmSum = getMetric(m, 'ops_rag_llm_latency_seconds_sum') || 0;
+  const avgLlm = llmCount > 0 ? (llmSum / llmCount * 1000) : 0;
+
+  const cards = [
+    {name:'请求数', value: reqs, sub: `反馈 ${reqsFb} 次`, cls:'accent'},
+    {name:'平均端到端延迟', value: avgLat.toFixed(0)+'ms', sub: `共 ${latCount} 次`, cls: avgLat > 5000 ? 'yellow' : 'green'},
+    {name:'检索命中数(最近)', value: hits, sub: `命中率 ${hitRatio.toFixed(2)}`, cls:''},
+    {name:'Token 消耗', value: tokIn + tokOut, sub: `输入 ${tokIn} / 输出 ${tokOut}`, cls:'accent'},
+    {name:'Token 成本(估算)', value: '$'+cost.toFixed(6), sub: 'gpt-4o 费率', cls:'yellow'},
+    {name:'LLM 平均延迟', value: avgLlm.toFixed(0)+'ms', sub: `共 ${llmCount} 次`, cls:''},
+    {name:'重排平均延迟', value: avgRerank.toFixed(0)+'ms', sub: `共 ${rerankCount} 次`, cls:''},
+    {name:'检索命中率', value: (hitRatio*100).toFixed(1)+'%', sub: `hits/recalled`, cls: hitRatio > 0.5 ? 'green' : 'yellow'},
+  ];
+  area.innerHTML = cards.map(c => `
+    <div class="metric-card ${c.cls}">
+      <div class="metric-name">${c.name}</div>
+      <div class="metric-value">${c.value}</div>
+      <div class="metric-sub">${c.sub}</div>
+    </div>
+  `).join('');
+}
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+marked.setOptions({ breaks: true, gfm: true });
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>

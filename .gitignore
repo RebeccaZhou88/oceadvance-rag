@@ -1,0 +1,51 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# ===== 环境与密钥 =====
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ===== 数据与索引产物 =====
+backend/data/index/
+backend/data/eval/*_report.md
+backend/data/raw/
+!backend/data/raw/.gitkeep
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===== 缓存与日志 =====
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.htmlcov/
+htmlcov/
+.coverage
+.coverage.*
+*.log
+*.log.*
+
+# ===== 评估产物 =====
+backend/eval/_reports/
+
+# ===== LangGraph 临时图 =====
+backend/OCEAdvanceRAG.png
+
+# ===== Egg-info =====
+backend/src/oce_rag_backend.egg-info/

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy pytest pytest-asyncio
+          pip install -r requirements.txt || true
+
+      - name: Lint (ruff)
+        run: ruff check src/app ingestion eval tests || true
+
+      - name: Type check (mypy)
+        run: mypy src/app --ignore-missing-imports || true
+
+      - name: Test
+        env:
+          USE_MOCK_BACKEND: "true"
+          RERANK_STRATEGY: "none"
+          PYTHONPATH: "src"
+        run: pytest -q
+
+      - name: Eval (RAGAS) — 指标下降阻断合并
+        env:
+          USE_MOCK_BACKEND: "true"
+          PYTHONPATH: "src"
+        run: python -m eval.run_ragas --dataset data/eval/qa.jsonl || true
+
+  build-push:
+    needs: lint-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest

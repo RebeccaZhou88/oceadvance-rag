@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oce-rag-backend"
+version = "0.1.0"
+description = "混合检索 + 重排 + 引用溯源 + 权限过滤的企业级 RAG 后端"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "OCE RAG Team"}]
+dependencies = [
+    # Web
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.5.2",
+    # LangGraph
+    "langgraph==0.2.34",
+    "langchain-core==0.2.43",
+    "langchain-openai==0.1.21",
+    "langchain==0.2.16",
+    # Azure / OpenAI
+    "azure-search-documents==11.5.1",
+    "openai==1.40.6",
+    "tiktoken==0.7.0",
+    # Rerank (local cross-encoder)
+    "sentence-transformers==3.0.1",
+    # Observability
+    "prometheus-client==0.20.0",
+    # Utils
+    "python-dotenv==1.0.1",
+    "tenacity>=8.4.1,<9.0",
+    "httpx==0.27.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-asyncio==0.24.0",
+    "langgraph-cli[inmem]>=0.1.71",
+]
+eval = [
+    "ragas==0.1.20",
+    "deepeval==1.5.1",
+    "datasets==2.21.0",
+]
+
+[project.scripts]
+oce-rag = "app.main:app"
+
+# === src layout ===
+# 源代码位于 backend/src/ 下，setuptools 从 src/ 发现包
+[tool.setuptools]
+include-package-data = true
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["app*"]
+exclude = ["tests*", "__pycache__*"]
+
+[tool.setuptools.package-data]
+app = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
