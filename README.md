@@ -5,7 +5,17 @@
 ### 1.1 背景
 运维知识（Runbook、Postmortem、Kusto 查询模板、IcM 事件摘要）通常散落在多个系统，格式多样，且存在严格的权限隔离。传统关键词搜索无法理解语义，传统RAG仅靠向量做粗筛，极易因“字面相似但语义不符”召回大量噪音，导致大模型“垃圾进垃圾出”甚至产生幻觉。Advanced RAG引入重排（CrossEncoder/LLM）进行深度精筛，能大幅降噪并提取最切题的核心信息，从而显著提升大模型回答的质量与准确度。
 
-### 1.2 核心目标
+### 1.2 对比传统 RAG 的提升
+
+| 维度 | 传统 RAG | 本项目 |
+|---|---|---|
+| 检索 | 单一向量召回 | BM25+向量+RRF 混合，关键词/语义互补 |
+| 排序 | 直接取 top-k | LLM/CrossEncoder 重排，附排名变化对比 |
+| 成本 | 每次都全链路调 LLM | 意图路由：闲聊旁路检索、空召回直接兜底 |
+| 可信度 | 答案无法验证 | [N] 引用溯源 + 权限过滤防越权 |
+| 质量 | 无度量 | 双轨评估 + P95/Token 成本/命中率监控告警 |
+
+### 1.3 核心目标
 构建一个**企业级、可评估、可观测**的 Advanced RAG 助手原型：
 - **准确**：混合检索 + 重排 + 引用溯源。
 - **安全**：支持基于用户角色的文档级权限过滤。
@@ -20,20 +30,12 @@
 
 ```mermaid
 flowchart TD
-    User[用户/企业IM/工单系统] --> API[FastAPI 网关]
-    API --> LG[LangGraph 编排层]
-    LG --> Memory[多轮对话记忆]
-    LG --> Retriever[混合检索模块]
-    Retriever --> Search[Azure AI Search]
-    Search --> Rerank[重排模块 Cross-Encoder/LLM]
-    Rerank --> Context[上下文组装]
-    Context --> LLM[Azure OpenAI / DeepSeek / Qwen 生成答案]
-    LLM --> Eval[在线评估 Faithfulness/Relevancy/Hallucination]
-    LLM --> Obs[可观测性看板]
-    Obs --> Prometheus[Prometheus + Grafana]
+    User["用户 / 企业IM / 工单系统"] --> API["FastAPI + 单页前端"]
+    API --> LG["LangGraph 编排层<br/>意图路由 → 混合检索+权限过滤 → 重排 → 生成 → 在线评估"]
+    LG --> KB[("运维知识库<br/>Runbook / Postmortem / Kusto / IcM 脱敏")]
+    LG --> LLM["Azure OpenAI / DeepSeek / Qwen"]
+    LG -. 指标采集 .-> Obs["Prometheus + Grafana<br/>P95 延迟 / Token 成本 / 评估指标"]
 ```
-
-### 
 
 ### 2.2 LangGraph 工作流（实际运行图）
 
@@ -74,7 +76,7 @@ graph TD;
 
 ### 3.1 数据源与脱敏
 - **数据源**：Markdown/PDF 运维手册、Postmortem 报告、Kusto 查询语句、IcM 事件摘要。
-- **脱敏要求**：**严禁使用微软内部机密数据**。使用合成数据或公开文档，删除所有真实客户信息、内部域名、API Key。
+- **脱敏要求**：使用合成数据或公开文档，删除所有真实客户信息、内部域名、API Key。
 - **数据格式**：`data/raw/` 下按类别存放，例如 `runbooks/`、`postmortems/`。
 
 ### 3.2 数据预处理与 Ingestion

@@ -12,11 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import router, set_workflow
 from app.config import get_settings
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logging.error("settings: %s", settings)
+    logging.info("settings: %s", settings)
     logging.basicConfig(level=settings.log_level.upper())
     logging.getLogger("app").info(
         "启动 RAG 助手 | mock_backend=%s | rerank=%s",
@@ -28,14 +27,17 @@ async def lifespan(app: FastAPI):
     await workflow.a_init()
     set_workflow(workflow)
     app.state.workflow = workflow
+    logging.info("工作流初始化完成")
     yield
     await workflow.a_close()
+    logging.info("工作流关闭完成")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    logging.info("settings: %s", settings)
     app = FastAPI(
-        title="运维知识库 Advanced RAG 助手",
+        title="OCE运维知识库 Advanced RAG 助手",
         version="0.1.0",
         description="混合检索 + 重排 + 引用溯源 + 权限过滤的企业级 RAG 原型",
         lifespan=lifespan,

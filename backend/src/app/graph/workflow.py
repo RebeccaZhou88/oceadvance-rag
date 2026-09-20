@@ -26,9 +26,19 @@ from app.graph.state import GraphState
 # Jupyter 环境下可视化工作流图（无 IPython 时静默跳过）
 try:
     from IPython.display import Image, display  # type: ignore
+
+    def _in_jupyter() -> bool:
+        try:
+            from IPython import get_ipython  # type: ignore
+            return get_ipython() is not None
+        except Exception:  # pragma: no cover
+            return False
 except ImportError:  # pragma: no cover
     Image = None  # type: ignore
     display = None  # type: ignore
+
+    def _in_jupyter() -> bool:
+        return False
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +92,8 @@ class RAGWorkflow:
         g.add_edge("evaluate_answer_node", END)
         self._graph = g.compile()
 
-        # Jupyter 环境下画出工作流 DAG
-        if display is not None and Image is not None:
+        # 仅 Jupyter 环境画出工作流 DAG（纯终端下 display(Image) 会打警告）
+        if display is not None and Image is not None and _in_jupyter():
             try:
                 display(Image(
                     self._graph.get_graph().draw_mermaid_png(
@@ -97,6 +107,7 @@ class RAGWorkflow:
         self, question: str, user_group: str, session_id: str
     ) -> dict[str, Any]:
         history = _SESSIONS.setdefault(session_id, [])
+        logging.info("history: %s", history)
         state: GraphState = {
             "question": question,
             "user_group": user_group,
@@ -106,6 +117,7 @@ class RAGWorkflow:
             result = await self._graph.ainvoke(state)
         else:
             result = await self._fallback_run(state)
+        logging.info("result: %s", result)
         # 更新会话历史(始终用 dict 格式,避免 LangGraph 的 Message 对象污染)
         history.append({"role": "user", "content": question})
         if "answer" in result:
@@ -153,3 +165,4 @@ class RAGWorkflow:
         close = getattr(self.llm, "aclose", None)
         if callable(close):
             await close()
+            logging.info("LLM 资源已释放")

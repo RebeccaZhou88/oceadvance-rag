@@ -17,14 +17,15 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=True,        # 严格大小写，防止系统环境变量误匹配
         populate_by_name=True,      # 允许用字段名本身（api_key）或 alias（API_KEY）
+        protected_namespaces=(),    # 允许 model_base_url / model_name 字段名（pydantic 默认保留 model_ 前缀）
     )
 
     # Azure OpenAI
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_api_key: str = Field(default="", alias="AZURE_OPENAI_API_KEY")
-    azure_openai_api_version: str = Field(default="2024-06-01", alias="AZURE_OPENAI_API_VERSION")
-    azure_openai_chat_deployment: str = Field(default="gpt-4o", alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
-    azure_openai_embedding_deployment: str = Field(default="text-embedding-3-small", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+    azure_openai_api_version: str = Field(default="", alias="AZURE_OPENAI_API_VERSION")
+    azure_openai_chat_deployment: str = Field(default="", alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
+    azure_openai_embedding_deployment: str = Field(default="", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
 
     # QWen / DeepSeek / 任何 OpenAI 兼容接口
     # alias 只接受大写环境变量名，DEEPSEEK_API_KEY 不会误匹配到 api_key

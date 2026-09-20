@@ -272,7 +272,7 @@ class LLMClient(BaseLLMClient):
 
 def build_llm_client(settings: Settings) -> BaseLLMClient:
     """工厂方法:DeepSeek/QWen > Azure > Mock。"""
-    logger.error("settings: %s", settings)
+    logger.info("settings: %s", settings)
     if settings.has_llm:
         logger.info("使用 QWen or DeepSeek LLM (model=%s)", settings.model_name)
         return LLMClient(settings)

@@ -1,6 +1,7 @@
 """FastAPI 路由：/chat /feedback /health /metrics。"""
 import time
 from typing import TYPE_CHECKING
+import logging
 
 from fastapi import APIRouter, HTTPException
 from app.api.schemas import (
@@ -65,8 +66,8 @@ async def config() -> dict:
         "hybrid_top_k": settings.hybrid_top_k,
         "final_top_k": settings.final_top_k,
         "rrf_k": settings.rrf_k,
-        "chat_deployment": settings.azure_openai_chat_deployment,
-        "embedding_deployment": settings.azure_openai_embedding_deployment,
+        "chat_deployment": settings.model_name,
+        "embedding_deployment": settings.azure_openai_embedding_deployment or "-",
         "index_name": settings.azure_search_index_name,
     }
 
@@ -83,7 +84,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
     except Exception as exc:  # noqa: BLE001
         import traceback as tb
-        logger.error("Chat pipeline failed:\n%s", tb.format_exc())
+        logging.error("Chat pipeline failed:\n%s", tb.format_exc())
         raise HTTPException(status_code=500, detail=f"RAG pipeline error: {exc}") from exc
 
     latency_ms = (time.perf_counter() - start) * 1000
