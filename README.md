@@ -145,9 +145,9 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ### 4. Enjoy
 
-![ui-screenshot](docs\ui-screenshot.png)
+![ui-screenshot](docs/ui-screenshot.png)
 
-![governance](docs\governance.png)
+![governance](docs/governance.png)
 
 ## 📜 License
 
