@@ -1,1 +1,1 @@
-"""数据 Ingestion：Chunking / Embedding / 索引写入。"""
+"""Data Ingestion: Chunking / Embedding / Index Writing."""

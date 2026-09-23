@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>运维知识库 Advanced RAG 助手</title>
+<title>Ops Knowledge Base Advanced RAG Assistant</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -30,7 +30,7 @@
     overflow: auto;
   }
 
-  /* 顶栏 */
+  /* Top Bar */
   header {
     background: var(--panel);
     border-bottom: 1px solid var(--border);
@@ -57,18 +57,21 @@
   }
   .btn:hover { background: #30363d; }
 
-  /* 主体三栏 */
+  /* Main Three Columns */
+  #viewChat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   main {
     flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: 1fr 1.1fr;
+    grid-template-rows: minmax(0, 1fr);
     gap: 1px;
     background: var(--border);
-    overflow: auto;
+    overflow: hidden;
     min-width: 900px;
   }
-  .col { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-  .right-col { display: grid; grid-template-rows: 1.2fr 1fr; gap: 1px; background: var(--border); }
+  .col { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; min-width: 0; min-height: 0; }
+  .right-col { display: grid; grid-template-rows: 1.2fr 1fr; gap: 1px; background: var(--border); min-height: 0; }
 
   .panel-header {
     background: var(--panel);
@@ -82,14 +85,14 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .dot.green { background: var(--green); }
 
-  /* 对话区 */
-  .chat-area { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  /* Chat Area */
+  .chat-area { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--user-bg); color: #fff; }
   .msg.bot { align-self: flex-start; background: var(--bot-bg); border: 1px solid var(--border); }
   .msg.system { align-self: center; background: transparent; color: var(--muted); font-size: 11px; border: 1px dashed var(--border); border-radius: 6px; }
   .msg .meta { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: "Cascadia Code", Consolas, monospace; }
-  /* bot 回复折叠:默认收起,点标题展开 */
+  /* Bot reply collapse: collapsed by default, click title to expand */
   .msg.bot .bot-head {
     display: flex; align-items: center; gap: 6px; cursor: pointer;
     color: var(--accent); font-size: 12px; font-weight: 600;
@@ -111,7 +114,7 @@
     font-size: 13px; line-height: 1.45;
     font-family: inherit; padding: 0; margin: 0 0 6px 0;
   }
-  /* markdown 渲染样式 — 压缩行距 */
+  /* Markdown render style — compressed line spacing */
   .answer-text h1, .answer-text h2, .answer-text h3, .answer-text h4 { color: #e6edf3; margin: 8px 0 4px; line-height: 1.3; }
   .answer-text h1 { font-size: 15px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
   .answer-text h2 { font-size: 14px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
@@ -198,8 +201,8 @@
   .send-btn:hover { background: #4c93f8; }
   .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* trace 区 */
-  .trace-area { flex: 1; overflow-y: auto; padding: 12px; }
+  /* Trace Area */
+  .trace-area { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
   .trace-step {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     margin-bottom: 10px; overflow: hidden;
@@ -231,8 +234,8 @@
   .change-down { color: var(--red); }
   .change-same { color: var(--muted); }
 
-  /* metrics 区 */
-  .metrics-area { flex: 1; overflow-y: auto; padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* Metrics Area */
+  .metrics-area { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .metric-card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px;
@@ -247,88 +250,201 @@
   .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 40px 0; }
   .loading { color: var(--muted); font-size: 12px; padding: 8px 0; }
 
-  /* 滚动条 */
+  /* Scrollbar */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+/* ===== View Switch + Quality Governance Board ===== */
+.view-switch { display: flex; gap: 4px; }
+.vs-btn {
+  background: #1c2330; color: #9aa7bd; border: 1px solid #2c3648;
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.vs-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.gov-badge {
+  display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px;
+  background: #ef4444; color: #fff; border-radius: 9px; font-size: 11px; text-align: center;
+}
+.gov-wrap { padding: 14px 20px; height: calc(100vh - 56px); box-sizing: border-box; overflow: auto; }
+.gov-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.gov-desc { color: #9aa7bd; font-size: 13px; }
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; min-width: 1100px; }
+.kanban-col { background: #141a24; border: 1px solid #232c3d; border-radius: 8px; display: flex; flex-direction: column; min-height: 400px; }
+.kanban-head {
+  padding: 10px 12px; font-weight: 600; font-size: 13px; color: #c7d2e0;
+  border-bottom: 1px solid #232c3d; display: flex; justify-content: space-between;
+}
+.kc-count { background: #232c3d; border-radius: 10px; padding: 0 8px; font-size: 12px; color: #9aa7bd; }
+.kanban-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.gov-card {
+  background: #1a2230; border: 1px solid #2a3548; border-left-width: 3px;
+  border-radius: 6px; padding: 9px 10px; font-size: 12.5px; cursor: pointer;
+}
+.gov-card.pri-high { border-left-color: #ef4444; }
+.gov-card.pri-medium { border-left-color: #f59e0b; }
+.gov-card.pri-low { border-left-color: #22c55e; }
+.gov-card .gc-q { color: #e2e8f0; margin: 4px 0; line-height: 1.4; }
+.gov-card .gc-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mini-tag { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: #232c3d; color: #9aa7bd; }
+.mini-tag.trig-empty_retrieval { background: #4a1d1d; color: #fca5a5; }
+.mini-tag.trig-low_score { background: #4a3a1d; color: #fcd34d; }
+.mini-tag.trig-manual { background: #1d3a4a; color: #7dd3fc; }
+.gov-card .gc-detail { display: none; margin-top: 8px; border-top: 1px dashed #2a3548; padding-top: 8px; color: #b8c4d6; }
+.gov-card.expanded .gc-detail { display: block; }
+.gov-card .gc-detail .answer-text { font-size: 12px; max-height: none; }
+.gov-card .gc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.gov-card .gc-actions button {
+  font-size: 11.5px; padding: 3px 9px; border-radius: 4px; cursor: pointer;
+  background: #2563eb; color: #fff; border: none;
+}
+.gov-card .gc-actions button.secondary { background: #374151; }
+.gov-card .gc-actions button.danger { background: #7f1d1d; }
+.gov-card .gc-error { color: #f87171; margin-top: 6px; }
+/* Governance Multi-Agent Step Timeline */
+.gov-steps { margin: 8px 0 2px; max-height: 200px; overflow-y: auto; }
+.ge-row { display: flex; gap: 8px; font-size: 11.5px; line-height: 1.5; position: relative; padding-bottom: 9px; }
+.ge-row:last-child { padding-bottom: 2px; }
+.ge-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex: none; background: #64748b; position: relative; z-index: 1; }
+.ge-row:not(:last-child) .ge-dot::after {
+  content: ''; position: absolute; left: 50%; top: 10px; bottom: -9px;
+  width: 1px; background: #2a3548; transform: translateX(-50%);
+}
+.ge-row.created .ge-dot { background: #a78bfa; }
+.ge-row.crew_start .ge-dot { background: #60a5fa; }
+.ge-row.agent_step .ge-dot { background: #60a5fa; }
+.ge-row.agent_done .ge-dot { background: #38bdf8; }
+.ge-row.done .ge-dot { background: #22c55e; }
+.ge-row.error .ge-dot { background: #ef4444; }
+.ge-row.live .ge-dot { animation: ge-pulse 1.2s ease-in-out infinite; }
+@keyframes ge-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(96,165,250,.5); } 50% { box-shadow: 0 0 0 5px rgba(96,165,250,0); } }
+.ge-ts { color: #6b7689; flex: none; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.ge-msg { color: #b8c4d6; word-break: break-word; }
+.ge-row.agent_step .ge-msg { color: #8fa3bd; }
+.ge-row.error .ge-msg { color: #f87171; }
+.ge-agent { color: #7dd3fc; }
+.ge-logs > summary { cursor: pointer; color: #7dd3fc; font-size: 11px; margin-top: 6px; user-select: none; }
+.gov-hint {
+  margin-top: 8px; padding: 6px 10px; font-size: 12px; color: #fcd34d;
+  background: #2a2418; border: 1px solid #4a3a1d; border-radius: 5px;
+}
+.gov-hint code { color: #7dd3fc; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>运维知识库 Advanced RAG 助手</h1>
+  <h1>Ops Knowledge Base Advanced RAG Assistant</h1>
   <div class="header-tags" id="headerTags">
-    <span class="tag">连接中…</span>
+    <span class="tag">Connecting…</span>
   </div>
   <div class="spacer"></div>
+  <nav class="view-switch">
+    <button class="vs-btn active" id="btnViewChat" onclick="switchView('chat')">Chat Test</button>
+    <button class="vs-btn" id="btnViewGov" onclick="switchView('gov')">Quality Governance Board <span class="gov-badge" id="govBadge" style="display:none">0</span></button>
+  </nav>
 </header>
 
+<div id="viewChat">
 <main>
-  <!-- 左：对话 -->
+  <!-- Left: Chat -->
   <div class="col">
-    <div class="panel-header"><span class="dot green"></span> 对话</div>
+    <div class="panel-header"><span class="dot green"></span> Chat</div>
     <div class="chat-area" id="chatArea">
-      <div class="msg system">已连接。选择用户组后输入问题开始测试。</div>
+      <div class="msg system">Connected. Select a user group and enter a question to start testing.</div>
     </div>
     <div class="input-area">
       <div class="input-row">
         <div class="field">
-          <label for="userGroup">用户组</label>
-          <select id="userGroup" title="用户组（影响权限过滤）">
-            <option value="sre">sre（全权限）</option>
-            <option value="dev">dev（部分）</option>
-            <option value="ops">ops（部分）</option>
+          <label for="userGroup">User Group</label>
+          <select id="userGroup" title="User Group (affects permission filtering)">
+            <option value="sre">sre (full access)</option>
+            <option value="dev">dev (partial)</option>
+            <option value="ops">ops (partial)</option>
           </select>
         </div>
         <div class="field">
-          <label for="sessionId">会话 ID</label>
+          <label for="sessionId">Session ID</label>
           <input type="text" id="sessionId" placeholder="session_id" value="web-1">
         </div>
         <div class="input-row-spacer"></div>
-        <button class="btn" onclick="clearChat()">清空对话</button>
-        <button class="btn" onclick="refreshMetrics()">刷新指标</button>
+        <button class="btn" onclick="clearChat()">Clear Chat</button>
+        <button class="btn" onclick="refreshMetrics()">Refresh Metrics</button>
       </div>
       <div class="input-row">
         <div class="field question-field">
-          <label for="question">问题</label>
-          <textarea id="question" placeholder="输入问题…（如：如何排查 SharePoint 高延迟?）回车发送，Shift+回车换行" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendQuestion()}"></textarea>
+          <label for="question">Question</label>
+          <textarea id="question" placeholder="Enter question… (e.g., How to troubleshoot SharePoint high latency?) Enter to send, Shift+Enter for newline" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendQuestion()}"></textarea>
         </div>
-        <button class="send-btn" id="sendBtn" onclick="sendQuestion()">发送</button>
+        <button class="send-btn" id="sendBtn" onclick="sendQuestion()">Send</button>
       </div>
     </div>
   </div>
 
-  <!-- 右：trace + metrics -->
+  <!-- Right: trace + metrics -->
   <div class="right-col">
     <div class="col">
-      <div class="panel-header"><span class="dot green"></span> 编排步骤日志（含重排过程）</div>
+      <div class="panel-header"><span class="dot green"></span> Orchestration Step Logs (includes rerank process)</div>
       <div class="trace-area" id="traceArea">
-        <div class="empty">发送问题后，这里会展示每个节点的执行日志</div>
+        <div class="empty">After sending a question, execution logs for each node will be shown here</div>
       </div>
     </div>
     <div class="col">
-      <div class="panel-header"><span class="dot green"></span> 可观测性指标</div>
+      <div class="panel-header"><span class="dot green"></span> Observability Metrics</div>
       <div class="metrics-area" id="metricsArea">
-        <div class="empty">点击右上「刷新指标」加载</div>
+        <div class="empty">Click "Refresh Metrics" in the top right to load</div>
       </div>
     </div>
   </div>
 </main>
+</div><!-- /viewChat -->
+
+<!-- ===== Quality Governance Board ===== -->
+<div id="viewGov" style="display:none">
+  <div class="gov-wrap">
+    <div class="gov-toolbar">
+      <div class="gov-desc">Ask → Discover blind spots → CrewAI multi-agent analysis → Improve docs → Improve RAG</div>
+      <button class="btn" onclick="loadGovTasks()">Refresh</button>
+    </div>
+    <div class="kanban" id="kanban">
+      <div class="kanban-col" data-status="running">
+        <div class="kanban-head">Analyzing <span class="kc-count" id="cnt-running">0</span></div>
+        <div class="kanban-body" id="col-running"></div>
+      </div>
+      <div class="kanban-col" data-status="open">
+        <div class="kanban-head">Open <span class="kc-count" id="cnt-open">0</span></div>
+        <div class="kanban-body" id="col-open"></div>
+      </div>
+      <div class="kanban-col" data-status="in_progress">
+        <div class="kanban-head">In Progress <span class="kc-count" id="cnt-in_progress">0</span></div>
+        <div class="kanban-body" id="col-in_progress"></div>
+      </div>
+      <div class="kanban-col" data-status="closed">
+        <div class="kanban-head">Closed <span class="kc-count" id="cnt-closed">0</span></div>
+        <div class="kanban-body" id="col-closed"></div>
+      </div>
+    </div>
+  </div>
+</div><!-- /viewGov -->
 
 <script>
 const API = '';
 let sessionUserGroup = 'sre';
 
-// ===== 初始化 =====
+// ===== Initialization =====
+let lastChatData = null;
+let currentView = 'chat';
+
 async function init() {
   await loadConfig();
   await refreshMetrics();
   setInterval(refreshMetrics, 5000);
+  setInterval(refreshGovBadge, 10000);
+  refreshGovBadge();
 }
 window.addEventListener('load', init);
 
-// ===== 加载配置 =====
+// ===== Load Config =====
 async function loadConfig() {
   try {
     const r = await fetch(API + '/config');
@@ -340,17 +456,15 @@ async function loadConfig() {
     tags.innerHTML = `
       ${backendTag}
       <span class="tag accent">rerank: ${c.rerank_strategy}</span>
-      <span class="tag">hybrid_top_k: ${c.hybrid_top_k}</span>
-      <span class="tag">final_top_k: ${c.final_top_k}</span>
-      <span class="tag">rrf_k: ${c.rrf_k}</span>
+      <span class="tag">embed: ${c.embedding_deployment || '-'}</span>
       <span class="tag">chat: ${c.chat_deployment}</span>
     `;
   } catch (e) {
-    document.getElementById('headerTags').innerHTML = `<span class="tag" style="color:var(--red)">配置加载失败</span>`;
+    document.getElementById('headerTags').innerHTML = `<span class="tag" style="color:var(--red)">Config load failed</span>`;
   }
 }
 
-// ===== 发送问题 =====
+// ===== Send Question =====
 async function sendQuestion() {
   const q = document.getElementById('question').value.trim();
   if (!q) return;
@@ -362,10 +476,10 @@ async function sendQuestion() {
   document.getElementById('question').value = '';
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
-  btn.textContent = '思考中…';
+  btn.textContent = 'Thinking…';
 
-  // 占位
-  const loadingId = addMessage('bot', '正在检索与生成…');
+  // Placeholder
+  const loadingId = addMessage('bot', 'Retrieving and generating…');
 
   try {
     const r = await fetch(API + '/chat', {
@@ -374,21 +488,24 @@ async function sendQuestion() {
       body: JSON.stringify({question: q, user_group: group, session_id: sid}),
     });
     const data = await r.json();
-    // 替换占位
+    // Replace placeholder
     const loadingEl = document.getElementById(loadingId);
     if (loadingEl) loadingEl.remove();
+    lastChatData = {question: q, user_group: group, session_id: sid,
+                    citations: data.citations || [], trace: data.trace || []};
     renderBotMessage(data);
     renderTrace(data.trace || []);
+    refreshGovBadge();
   } catch (e) {
     const loadingEl = document.getElementById(loadingId);
-    if (loadingEl) loadingEl.innerHTML = `<span style="color:var(--red)">请求失败: ${e}</span>`;
+    if (loadingEl) loadingEl.innerHTML = `<span style="color:var(--red)">Request failed: ${e}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = '发送';
+    btn.textContent = 'Send';
   }
 }
 
-// ===== 渲染消息 =====
+// ===== Render Message =====
 let msgCounter = 0;
 function addMessage(role, text) {
   const area = document.getElementById('chatArea');
@@ -408,18 +525,18 @@ function renderBotMessage(data) {
   div.className = 'msg bot';
   const msgId = 'msg-' + (msgCounter - 1);
 
-  // ===== 折叠头:默认收起,点击展开/关闭 =====
+  // ===== Collapse header: collapsed by default, click to expand/close =====
   const head = document.createElement('div');
   head.className = 'bot-head';
   head.innerHTML = `<span class="bot-toggle">▼</span><span>Response:</span>`;
   head.addEventListener('click', () => div.classList.toggle('collapsed'));
   div.appendChild(head);
 
-  // ===== bot-body:默认隐藏,展开后显示 =====
+  // ===== bot-body: hidden by default, shown when expanded =====
   const body = document.createElement('div');
   body.className = 'bot-body';
 
-  // ===== answer: 用 marked 渲染 markdown,并把 [N] 替换成超链接 =====
+  // ===== answer: render markdown with marked, and replace [N] with hyperlinks =====
   const answerWrap = document.createElement('div');
   answerWrap.className = 'answer-text';
   let answerHtml = data.answer;
@@ -428,7 +545,7 @@ function renderBotMessage(data) {
   } else {
     answerHtml = escapeHtml(answerHtml);
   }
-  // 把 answer 里的 [N] (不是已被 markdown 链接化的) 替换成超链接
+  // Replace [N] in answer (not already markdown-linked) with hyperlinks
   answerHtml = answerHtml.replace(/\[(\d+)\](?!\()/g, (m, n) => {
     const idx = parseInt(n, 10) - 1;
     if (data.citations && data.citations[idx]) {
@@ -440,25 +557,25 @@ function renderBotMessage(data) {
   answerWrap.innerHTML = answerHtml;
   body.appendChild(answerWrap);
 
-  // ===== 依据头:放在 answer 下面 =====
+  // ===== Citations header: placed below answer =====
   if (data.citations && data.citations.length) {
     const citeHeader = document.createElement('div');
     citeHeader.className = 'cite-header';
-    citeHeader.innerHTML = '<span class="cite-header-label">依据:</span> ' +
+    citeHeader.innerHTML = '<span class="cite-header-label">Citations:</span> ' +
       data.citations.map((c, i) => {
         return `<a href="javascript:void(0)" class="cite-link" data-idx="${i}" title="${escapeHtml(c.source)} | ${escapeHtml(c.category)} | score ${c.score.toFixed(4)}">[${i+1}] ${escapeHtml(c.source.split(/[\\/]/).pop())}</a>`;
       }).join('');
     body.appendChild(citeHeader);
   }
 
-  // ===== 引用面板(默认全部隐藏,点击依据后只显示对应那一个) =====
+  // ===== Citation panels (all hidden by default, only the corresponding one shown when citation is clicked) =====
   if (data.citations && data.citations.length) {
     const citations = data.citations;
     const panels = document.createElement('div');
     panels.className = 'cite-panels cite-panels-hidden';
     panels.id = `panels-${msgCounter-1}`;
 
-    // 面板:每个默认 display:none
+    // Panel: each defaults to display:none
     const panelRefs = [];
     citations.forEach((c, i) => {
       const panel = document.createElement('div');
@@ -475,7 +592,7 @@ function renderBotMessage(data) {
         </div>
         <div class="cite-panel-body">${escapeHtml(c.snippet)}</div>
       `;
-      // 面板头部点击:等价于点对应依据链接
+      // Panel header click: equivalent to clicking the corresponding citation link
       panel.querySelector('.cite-panel-head').addEventListener('click', () => {
         togglePanel(i);
       });
@@ -484,17 +601,17 @@ function renderBotMessage(data) {
     });
     body.appendChild(panels);
 
-    // 核心:切换第 idx 个面板可见,其余隐藏
+    // Core: toggle visibility of the idx-th panel, hide the rest
     let currentIdx = -1;
     function togglePanel(idx) {
       panels.classList.remove('cite-panels-hidden');
       if (currentIdx === idx) {
-        // 已显示的再点一次 → 全部隐藏
+        // Click again on the shown one → hide all
         panelRefs.forEach(p => { p.style.display = 'none'; p.classList.remove('open'); });
         div.querySelectorAll('.cite-link').forEach(el => el.classList.remove('active'));
         currentIdx = -1;
       } else {
-        // 只显示 idx,其余全藏
+        // Only show idx, hide the rest
         panelRefs.forEach((p, i) => {
           if (i === idx) {
             p.style.display = '';
@@ -510,7 +627,7 @@ function renderBotMessage(data) {
       }
     }
 
-    // 绑定所有 cite-link(answer 里 + 依据头里的)点击事件
+    // Bind click events for all cite-link (in answer + in citations header)
     div.addEventListener('click', (ev) => {
       const link = ev.target.closest('.cite-link');
       if (!link) return;
@@ -521,11 +638,19 @@ function renderBotMessage(data) {
     });
   }
 
-  // 元信息
+  // Metadata
   const meta = document.createElement('div');
   meta.className = 'meta';
   meta.textContent = `latency: ${data.latency_ms.toFixed(0)}ms | tokens: ${data.input_tokens}→${data.output_tokens} | docs: ${data.retrieved_docs_count} | citations: ${(data.citations||[]).length}`;
   body.appendChild(meta);
+
+  // Quality governance auto-trigger hint
+  if (data.governance_task_id) {
+    const gov = document.createElement('div');
+    gov.className = 'gov-hint';
+    gov.innerHTML = `🔔 Hit a knowledge blind spot rule. A document quality governance task has been triggered in the background <code>${data.governance_task_id}</code>. Track it in "Quality Governance Board"`;
+    body.appendChild(gov);
+  }
 
   div.appendChild(body);
   area.appendChild(div);
@@ -533,16 +658,16 @@ function renderBotMessage(data) {
 }
 
 function clearChat() {
-  document.getElementById('chatArea').innerHTML = '<div class="msg system">已清空。</div>';
-  document.getElementById('traceArea').innerHTML = '<div class="empty">发送问题后，这里会展示每个节点的执行日志</div>';
+  document.getElementById('chatArea').innerHTML = '<div class="msg system">Cleared.</div>';
+  document.getElementById('traceArea').innerHTML = '<div class="empty">After sending a question, execution logs for each node will be shown here</div>';
 }
 
-// ===== 渲染 trace =====
+// ===== Render Trace =====
 function renderTrace(trace) {
   const area = document.getElementById('traceArea');
   area.innerHTML = '';
   if (!trace.length) {
-    area.innerHTML = '<div class="empty">本次请求无步骤日志</div>';
+    area.innerHTML = '<div class="empty">No step logs for this request</div>';
     return;
   }
   trace.forEach(step => {
@@ -564,7 +689,7 @@ function renderTrace(trace) {
     body.className = 'trace-body';
 
     const d = step.detail || {};
-    // 通用键值
+    // Generic key-value
     const skipKeys = new Set(['before','after','rank_changes','eliminated']);
     for (const [k, v] of Object.entries(d)) {
       if (skipKeys.has(k)) continue;
@@ -575,11 +700,11 @@ function renderTrace(trace) {
       body.appendChild(kv);
     }
 
-    // 重排前后对比表
+    // Rerank before/after comparison table
     if (step.step === 'rerank_sequence' && (d.before || d.after)) {
       body.appendChild(renderRerankTable(d));
     }
-    // 检索召回列表
+    // Retrieval recall list
     if (step.step === 'retrieve_docs' && d.before) {
       body.appendChild(renderRecallList(d));
     }
@@ -587,14 +712,14 @@ function renderTrace(trace) {
     card.appendChild(body);
     area.appendChild(card);
   });
-  // 默认展开 rerank
+  // Default expand rerank
   const rerankCard = area.querySelector('.trace-step:nth-child(3)');
-  // 不强制，让用户点
+  // Not forced, let user click
 }
 
 function renderRecallList(d) {
   const wrap = document.createElement('div');
-  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">召回文档（按 RRF 分数降序）:</div>';
+  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">Retrieved documents (sorted by RRF score descending):</div>';
   const tbl = document.createElement('table');
   tbl.className = 'rerank-table';
   tbl.innerHTML = `<thead><tr><th>#</th><th>doc_id</th><th>category</th><th>RRF score</th></tr></thead>`;
@@ -611,13 +736,13 @@ function renderRecallList(d) {
 
 function renderRerankTable(d) {
   const wrap = document.createElement('div');
-  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">重排前后对比（绿=保留，红=淘汰）:</div>';
+  wrap.innerHTML = '<div style="margin-top:10px;color:var(--muted);font-size:11px">Rerank before/after comparison (green=kept, red=eliminated):</div>';
   const tbl = document.createElement('table');
   tbl.className = 'rerank-table';
-  tbl.innerHTML = `<thead><tr><th>新排名</th><th>旧排名</th><th>doc_id</th><th>category</th><th>原分数</th><th>重排分数</th><th>变化</th></tr></thead>`;
+  tbl.innerHTML = `<thead><tr><th>New Rank</th><th>Old Rank</th><th>doc_id</th><th>category</th><th>Original Score</th><th>Rerank Score</th><th>Change</th></tr></thead>`;
   const tb = document.createElement('tbody');
   const afterIds = (d.after || []).map(x => x.doc_id);
-  // 合并 before + after，去重保序
+  // Merge before + after, deduplicate preserving order
   const allIds = [];
   (d.before || []).forEach(x => { if (!allIds.includes(x.doc_id)) allIds.push(x.doc_id); });
   (d.after || []).forEach(x => { if (!allIds.includes(x.doc_id)) allIds.push(x.doc_id); });
@@ -627,7 +752,7 @@ function renderRerankTable(d) {
   const afterMap = {};
   (d.after || []).forEach((x, i) => afterMap[x.doc_id] = {rank: i+1, ...x});
 
-  // 按重排后排名排序（afterMap.rank），没在 after 里的兜底排到最后
+  // Sort by rerank rank (afterMap.rank), those not in after fall back to the end
   allIds.sort((a, b) => {
     const ra = afterMap[a]?.rank ?? 999;
     const rb = afterMap[b]?.rank ?? 999;
@@ -640,7 +765,7 @@ function renderRerankTable(d) {
     const inBefore = did in beforeMap;
     const a = afterMap[did] || {};
     const b = beforeMap[did] || {};
-    // 分界线：after 里且排名 <= topK = 保留，否则淘汰
+    // Cutoff: in after and rank <= topK = kept, otherwise eliminated
     const kept = inAfter && topK > 0 && a.rank <= topK;
     const tr = document.createElement('tr');
     tr.className = kept ? 'kept' : 'eliminated';
@@ -651,9 +776,9 @@ function renderRerankTable(d) {
       else if (diff < 0) changeStr = `<span class="change-down">↓${-diff}</span>`;
       else changeStr = `<span class="change-same">—</span>`;
     } else if (kept) {
-      changeStr = `<span class="change-up">新进入</span>`;
+      changeStr = `<span class="change-up">New</span>`;
     } else {
-      changeStr = `<span class="change-down">淘汰</span>`;
+      changeStr = `<span class="change-down">Eliminated</span>`;
     }
     tr.innerHTML = `
       <td>${a.rank || '-'}</td>
@@ -670,7 +795,7 @@ function renderRerankTable(d) {
 
   const info = document.createElement('div');
   info.style.cssText = 'margin-top:6px;font-size:11px;color:var(--muted);font-family:monospace;';
-  info.textContent = `策略=${d.strategy} | 输入${d.input_count}条 → 输出${d.output_count}条 (top_k=${d.final_top_k}) | 淘汰${(d.eliminated||[]).length}条`;
+  info.textContent = `Strategy=${d.strategy} | Input ${d.input_count} items → Output ${d.output_count} items (top_k=${d.final_top_k}) | Eliminated ${(d.eliminated||[]).length} items`;
   wrap.appendChild(info);
   wrap.appendChild(tbl);
   return wrap;
@@ -684,7 +809,7 @@ async function refreshMetrics() {
     const m = parsePrometheus(text);
     renderMetrics(m);
   } catch (e) {
-    document.getElementById('metricsArea').innerHTML = `<div class="empty">指标加载失败</div>`;
+    document.getElementById('metricsArea').innerHTML = `<div class="empty">Metrics load failed</div>`;
   }
 }
 
@@ -717,33 +842,24 @@ function sumMetric(m, name) {
 function renderMetrics(m) {
   const area = document.getElementById('metricsArea');
   const reqs = getMetric(m, 'ops_rag_requests_total', 'status="ok"') || 0;
-  const reqsFb = getMetric(m, 'ops_rag_requests_total', 'status="feedback"') || 0;
   const latCount = getMetric(m, 'ops_rag_request_latency_seconds_count') || 0;
   const latSum = getMetric(m, 'ops_rag_request_latency_seconds_sum') || 0;
   const avgLat = latCount > 0 ? (latSum / latCount * 1000) : 0;
-  const hits = getMetric(m, 'ops_rag_retrieval_hits') || 0;
-  const hitRatio = getMetric(m, 'ops_rag_retrieval_hit_ratio') || 0;
+  const bizP50 = getMetric(m, 'ops_rag_business_latency_p50_ms') || 0;
+  const bizP95 = getMetric(m, 'ops_rag_business_latency_p95_ms') || 0;
+  const bizP99 = getMetric(m, 'ops_rag_business_latency_p99_ms') || 0;
+  const effectiveRatio = getMetric(m, 'ops_rag_retrieval_effective_ratio') || 0;
   const tokIn = sumMetric(m, 'ops_rag_token_usage_total') > 0
     ? (m['ops_rag_token_usage_total'].find(x => x.labels.includes('input'))?.value || 0) : 0;
   const tokOut = m['ops_rag_token_usage_total']
     ? (m['ops_rag_token_usage_total'].find(x => x.labels.includes('output'))?.value || 0) : 0;
-  const cost = getMetric(m, 'ops_rag_token_cost_usd') || 0;
-  const rerankCount = getMetric(m, 'ops_rag_rerank_latency_seconds_count') || 0;
-  const rerankSum = getMetric(m, 'ops_rag_rerank_latency_seconds_sum') || 0;
-  const avgRerank = rerankCount > 0 ? (rerankSum / rerankCount * 1000) : 0;
-  const llmCount = getMetric(m, 'ops_rag_llm_latency_seconds_count') || 0;
-  const llmSum = getMetric(m, 'ops_rag_llm_latency_seconds_sum') || 0;
-  const avgLlm = llmCount > 0 ? (llmSum / llmCount * 1000) : 0;
 
   const cards = [
-    {name:'请求数', value: reqs, sub: `反馈 ${reqsFb} 次`, cls:'accent'},
-    {name:'平均端到端延迟', value: avgLat.toFixed(0)+'ms', sub: `共 ${latCount} 次`, cls: avgLat > 5000 ? 'yellow' : 'green'},
-    {name:'检索命中数(最近)', value: hits, sub: `命中率 ${hitRatio.toFixed(2)}`, cls:''},
-    {name:'Token 消耗', value: tokIn + tokOut, sub: `输入 ${tokIn} / 输出 ${tokOut}`, cls:'accent'},
-    {name:'Token 成本(估算)', value: '$'+cost.toFixed(6), sub: 'gpt-4o 费率', cls:'yellow'},
-    {name:'LLM 平均延迟', value: avgLlm.toFixed(0)+'ms', sub: `共 ${llmCount} 次`, cls:''},
-    {name:'重排平均延迟', value: avgRerank.toFixed(0)+'ms', sub: `共 ${rerankCount} 次`, cls:''},
-    {name:'检索命中率', value: (hitRatio*100).toFixed(1)+'%', sub: `hits/recalled`, cls: hitRatio > 0.5 ? 'green' : 'yellow'},
+    {name:'Requests', value: reqs, sub: `total`, cls:'accent'},
+    {name:'Avg End-to-End Latency', value: avgLat.toFixed(0)+'ms', sub: `${latCount} requests`, cls: avgLat > 10000 ? 'yellow' : 'green'},
+    {name:'P95 Business Latency', value: bizP95.toFixed(0)+'ms', sub: `P50 ${bizP50.toFixed(0)} · P99 ${bizP99.toFixed(0)}`, cls: bizP95 > 8000 ? 'yellow' : 'green'},
+    {name:'Retrieval Effective Rate', value: (effectiveRatio*100).toFixed(1)+'%', sub: `effective / Azure returned`, cls: effectiveRatio > 0.6 ? 'green' : (effectiveRatio > 0.3 ? 'yellow' : 'red')},
+    {name:'Token Usage', value: (tokIn + tokOut).toLocaleString(), sub: `Input ${tokIn.toLocaleString()} · Output ${tokOut.toLocaleString()}`, cls:'accent'},
   ];
   area.innerHTML = cards.map(c => `
     <div class="metric-card ${c.cls}">
@@ -754,6 +870,237 @@ function renderMetrics(m) {
   `).join('');
 }
 
+// ===== Knowledge Base Quality Governance Board =====
+const TRIGGER_LABEL = {empty_retrieval: 'Empty Retrieval', low_score: 'Low Eval Score', manual: 'Manual Trigger'};
+const GAP_LABEL = {missing: 'Missing Knowledge', outdated: 'Outdated Content', fragmented: 'Fragmented Content', inaccurate: 'Inaccurate Content'};
+let govPollTimer = null;
+const govExpandedIds = new Set();   // Keep card expanded state after 8s polling re-render
+const govLogsOpen = new Set();      // Keep "Execution Logs" collapse panel expanded after re-render
+const govEventsCache = new Map();   // id -> events, historical logs fetched once then cached
+
+function switchView(v) {
+  currentView = v;
+  document.getElementById('viewChat').style.display = v === 'chat' ? '' : 'none';
+  document.getElementById('viewGov').style.display = v === 'gov' ? '' : 'none';
+  document.getElementById('btnViewChat').classList.toggle('active', v === 'chat');
+  document.getElementById('btnViewGov').classList.toggle('active', v === 'gov');
+  if (v === 'gov') {
+    govLogsOpen.clear();
+    govEventsCache.clear();
+    loadGovTasks();
+    if (!govPollTimer) govPollTimer = setInterval(() => { if (currentView === 'gov') loadGovTasks(); }, 8000);
+  }
+}
+
+async function refreshGovBadge() {
+  try {
+    const r = await fetch(API + '/governance/status');
+    if (!r.ok) return;
+    const s = await r.json();
+    const openCount = (s.task_counts.open || 0) + (s.task_counts.running || 0);
+    const badge = document.getElementById('govBadge');
+    if (openCount > 0) { badge.style.display = 'inline-block'; badge.textContent = openCount; }
+    else { badge.style.display = 'none'; }
+  } catch (e) { /* Silent when governance module not enabled */ }
+}
+
+async function loadGovTasks() {
+  try {
+    const r = await fetch(API + '/governance/tasks?limit=200');
+    if (!r.ok) return;
+    const tasks = await r.json();
+    renderKanban(tasks);
+  } catch (e) { /* ignore */ }
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function renderKanban(tasks) {
+  const buckets = {running: [], open: [], in_progress: [], closed: []};
+  for (const t of tasks) {
+    if (t.status === 'resolved' || t.status === 'ignored') buckets.closed.push(t);
+    else if (buckets[t.status]) buckets[t.status].push(t);
+  }
+  for (const key of ['running', 'open', 'in_progress', 'closed']) {
+    document.getElementById('cnt-' + key).textContent = buckets[key].length;
+    const body = document.getElementById('col-' + key);
+    body.innerHTML = buckets[key].length
+      ? buckets[key].map(govCardHtml).join('')
+      : '<div class="empty" style="padding:12px;font-size:12px">None</div>';
+  }
+  // Expand/collapse (preserved across polls) + step log loading
+  for (const col of document.querySelectorAll('.kanban-body')) {
+    for (const card of col.querySelectorAll('.gov-card')) {
+      const id = card.dataset.id;
+      if (govExpandedIds.has(id)) card.classList.add('expanded');
+      card.querySelector('.gc-q')?.addEventListener('click', () => {
+        card.classList.toggle('expanded');
+        if (card.classList.contains('expanded')) govExpandedIds.add(id);
+        else govExpandedIds.delete(id);
+      });
+      // running cards: step timeline always visible, auto-refreshes with 8s polling
+      if (card.classList.contains('is-running')) loadGovEvents(id, `steps-${id}`, true);
+      // Finished cards: fetch (with cache) when "Execution Logs" expanded, preserve expanded state and restore content after re-render
+      const logs = card.querySelector('.ge-logs');
+      if (logs) {
+        if (govLogsOpen.has(id)) {
+          logs.open = true;
+          if (govEventsCache.has(id)) {
+            document.getElementById(`evbox-${id}`).innerHTML = govEventsHtml(govEventsCache.get(id), false);
+          }
+        }
+        logs.addEventListener('toggle', () => {
+          if (logs.open) {
+            govLogsOpen.add(id);
+            if (!govEventsCache.has(id)) loadGovEvents(id, `evbox-${id}`, false);
+          } else {
+            govLogsOpen.delete(id);
+          }
+        });
+      }
+    }
+  }
+}
+
+function fmtEventTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return ts.slice(11, 19) || '';
+  return d.toLocaleTimeString('en-US', {hour12: false});
+}
+
+function govEventsHtml(events, live) {
+  if (!events || !events.length) {
+    return '<div class="empty" style="padding:4px 0;font-size:11px">Waiting for Agent to start…</div>';
+  }
+  return events.map((e, i) => {
+    const isLast = live && i === events.length - 1 && e.stage !== 'done' && e.stage !== 'error';
+    // The role name before the "Step N:" prefix in step messages is already in the agent field, keep the message text complete
+    return `<div class="ge-row ${esc(e.stage)}${isLast ? ' live' : ''}">
+      <span class="ge-dot"></span>
+      <span class="ge-ts">${esc(fmtEventTs(e.ts))}</span>
+      <span class="ge-msg">${e.agent ? `<span class="ge-agent">${esc(e.agent)}</span> · ` : ''}${esc(e.message)}</span>
+    </div>`;
+  }).join('');
+}
+
+async function loadGovEvents(id, containerId, live) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  const stickToBottom = live && box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  try {
+    let events;
+    if (!live && govEventsCache.has(id)) events = govEventsCache.get(id);
+    else {
+      const r = await fetch(API + '/governance/tasks/' + id + '/events');
+      if (!r.ok) return;
+      events = await r.json();
+      if (!live) govEventsCache.set(id, events);
+    }
+    const target = document.getElementById(containerId);  // May have been re-rendered while waiting for fetch
+    if (target) {
+      target.innerHTML = govEventsHtml(events, live);
+      if (stickToBottom) target.scrollTop = target.scrollHeight;
+    }
+  } catch (e) { /* Silent in polling scenarios */ }
+}
+
+function govCardHtml(t) {
+  const scores = t.eval_scores || {};
+  const scoreText = scores.faithfulness
+    ? `Faithfulness ${scores.faithfulness}/5 · Relevancy ${scores.answer_relevancy}/5 · Hallucination ${scores.hallucination_score}`
+    : '';
+  const created = (t.created_at || '').replace('T', ' ').replace('+00:00', ' UTC');
+  let suggestion = t.suggestion || '';
+  if (suggestion && typeof marked !== 'undefined') suggestion = marked.parse(suggestion);
+  else suggestion = esc(suggestion).replace(/\n/g, '<br>');
+  const crewJson = t.crew_result && Object.keys(t.crew_result).length
+    ? `<details style="margin-top:6px"><summary style="cursor:pointer;color:#7dd3fc;font-size:11px">Raw Structured Output</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:240px;overflow:auto">${esc(JSON.stringify(t.crew_result, null, 2))}</pre></details>` : '';
+
+  // running: step timeline always on card (visible without expanding for real-time progress); finished: collapse lazy-load historical logs
+  const stepsBlock = t.status === 'running'
+    ? `<div class="gov-steps" id="steps-${esc(t.id)}"><div class="empty" style="padding:4px 0;font-size:11px">Waiting for Agent to start…</div></div>`
+    : '';
+  const historyLogs = t.status !== 'running'
+    ? `<details class="ge-logs"><summary>📋 Execution Logs (multi-agent steps)</summary><div class="gov-steps" id="evbox-${esc(t.id)}"><div class="empty" style="padding:4px 0;font-size:11px">Click to expand and load…</div></div></details>`
+    : '';
+
+  // Status transition buttons
+  let actions = '';
+  if (t.status === 'open') actions = `
+    <button onclick="event.stopPropagation();patchGov('${t.id}','in_progress')">Start Processing</button>
+    <button class="danger" onclick="event.stopPropagation();patchGov('${t.id}','ignored')">Ignore</button>`;
+  else if (t.status === 'in_progress') actions = `
+    <button onclick="event.stopPropagation();patchGov('${t.id}','resolved')">Mark Improved</button>
+    <button class="secondary" onclick="event.stopPropagation();patchGov('${t.id}','open')">Send Back</button>`;
+  else if (t.status === 'resolved' || t.status === 'ignored') actions = `
+    <button class="secondary" onclick="event.stopPropagation();patchGov('${t.id}','open')">Reopen</button>`;
+
+  return `
+  <div class="gov-card pri-${esc(t.priority || 'medium')}${t.status === 'running' ? ' is-running' : ''}" data-id="${esc(t.id)}">
+    <div class="gc-q">${esc(t.question)}
+      <div class="gc-meta">
+        <span class="mini-tag trig-${esc(t.trigger_type)}">${TRIGGER_LABEL[t.trigger_type] || esc(t.trigger_type)}</span>
+        ${t.gap_type ? `<span class="mini-tag">${GAP_LABEL[t.gap_type] || esc(t.gap_type)}</span>` : ''}
+        <span class="mini-tag">${esc(t.priority || 'medium')}</span>
+        ${t.status === 'ignored' ? '<span class="mini-tag">Ignored</span>' : ''}
+      </div>
+    </div>
+    ${stepsBlock}
+    <div class="gc-detail" onclick="event.stopPropagation()">
+      ${scoreText ? `<div style="font-size:11px;color:#9aa7bd;margin-bottom:4px">${scoreText}</div>` : ''}
+      ${t.doc_refs && t.doc_refs.length ? `<div style="font-size:11px;color:#9aa7bd">Hit documents: ${esc(t.doc_refs.map(d => d.doc_id).join(', '))}</div>` : ''}
+      <div class="answer-text">${suggestion || (t.status === 'running' ? 'CrewAI multi-agent analyzing, check the step logs below…' : 'No suggestions yet')}</div>
+      ${historyLogs}
+      ${crewJson}
+      ${t.error ? `<div class="gc-error">Analysis failed: ${esc(t.error)}</div>` : ''}
+      <div style="font-size:11px;color:#6b7689;margin-top:6px">${esc(t.id)} · ${esc(created)}</div>
+      <div class="gc-actions">${actions}</div>
+    </div>
+  </div>`;
+}
+
+async function patchGov(id, status) {
+  await fetch(API + '/governance/tasks/' + id, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  });
+  loadGovTasks();
+}
+
+async function manualGovern() {
+  if (!lastChatData) { alert('Please send a question first'); return; }
+  // Extract online evaluation scores from trace
+  let evalScores = {};
+  for (const step of (lastChatData.trace || [])) {
+    if (step.step === 'evaluate_answer' && step.status === 'ok') {
+      const d = step.detail || {};
+      evalScores = {
+        faithfulness: d.faithfulness || 0,
+        answer_relevancy: d.answer_relevancy || 0,
+        hallucination_score: d.hallucination_score || 0,
+      };
+    }
+  }
+  const r = await fetch(API + '/governance/trigger', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      question: lastChatData.question,
+      user_group: lastChatData.user_group,
+      session_id: lastChatData.session_id,
+      eval_scores: evalScores,
+      doc_refs: lastChatData.citations,
+    }),
+  });
+  const data = await r.json();
+  if (!r.ok) { alert('Trigger failed: ' + (data.detail || r.status)); return; }
+  if (data.status === 'skipped') { alert('A governance task is already in progress for this question'); return; }
+  alert('Governance task created: ' + data.task_id);
+  refreshGovBadge();
+  switchView('gov');
+}
 </script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>

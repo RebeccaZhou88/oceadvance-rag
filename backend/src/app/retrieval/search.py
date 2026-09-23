@@ -1,6 +1,6 @@
-"""混合检索模块：Azure AI Search (BM25 + Vector + RRF) 或本地内存模拟后端。
+"""Hybrid retrieval module: Azure AI Search (BM25 + Vector + RRF) or local in-memory mock backend.
 
-返回统一结构：list[dict]，每个片段含
+Returns a unified structure: list[dict], each chunk contains
   id / content / source / category / allowed_groups / score / last_updated
 """
 from __future__ import annotations
@@ -24,12 +24,12 @@ class Retriever(Protocol):
 
 
 class AzureAISearchRetriever:
-    """真实 Azure AI Search 混合检索。
+    """Real Azure AI Search hybrid retrieval.
 
-    - BM25 关键词检索
-    - 向量检索（text-embedding-3-small）
-    - RRF 融合
-    - OData 权限过滤
+    - BM25 keyword search
+    - Vector search (same embedding model as ingestion, default text-embedding-v2 / 1536 dim)
+    - RRF fusion
+    - OData permission filtering
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -48,33 +48,46 @@ class AzureAISearchRetriever:
     ) -> list[dict[str, Any]]:
         from azure.search.documents.models import VectorizedQuery
 
-        # 注入权限过滤 OData
+        # Inject permission filtering OData
         search_filter = build_search_filter(user_group)
-        # 注：向量查询需先 embedding，此处通过依赖的 LLM 客户端
-        # 为简洁，这里假定调用方已传入 query 文本，向量化在外层处理
-        # 真实实现中应注入 embedding client
         vector = await self._embed(query)
+        logger.info(
+            "  🔎 [Azure Search] filter=%s | vector_dim=%d | top_k=%d | query_type=%s",
+            search_filter, len(vector), top_k,
+            "semantic" if self.settings.rerank_strategy == "semantic" else "simple",
+        )
 
         vector_query = VectorizedQuery(
             vector=vector, k_nearest_neighbors=top_k, fields="content_vector"
         )
-        results = await self._client.search(
-            search_text=query,
-            vector_queries=[vector_query],
-            filter=search_filter,
-            top=top_k,
-            query_type="semantic" if self.settings.rerank_strategy == "semantic" else "simple",
+        # search_mode 决定是否启用 BM25 关键词检索 + RRF 融合
+        #   vector: 仅向量检索，中文 BM25 简单解析器效果差，纯向量通常更好
+        #   hybrid: search_text=query + vector_queries，Azure 自动 RRF 融合两路结果
+        search_kwargs: dict[str, Any] = {
+            "vector_queries": [vector_query],
+            "filter": search_filter,
+            "top": top_k,
+        }
+        if self.settings.azure_search_mode == "hybrid":
+            search_kwargs["search_text"] = query
+        mode_label = "hybrid" if self.settings.azure_search_mode == "hybrid" else "vector-only"
+        logger.info(
+            "  🔎 [Azure Search] mode=%s | filter=%s | vector_dim=%d | top_k=%d",
+            mode_label, search_filter, len(vector), top_k,
         )
+        results = await self._client.search(**search_kwargs)
         docs: list[dict[str, Any]] = []
         async for r in results:
             docs.append(self._normalize(r))
+        logger.info("  🔎 [Azure Search] returned %d docs", len(docs))
         return docs
 
     async def _embed(self, text: str) -> list[float]:
-        # 由 workflow 注入 embedding；此处兜底走 Azure
-        from app.llm.azure_openai import AzureOpenAIClient
+        # Query vectorization must use the same embedding model as ingestion
+        # (same dimensions), uniformly go through the factory
+        from app.llm.azure_openai import build_embed_client
 
-        client = AzureOpenAIClient(self.settings)
+        client = build_embed_client(self.settings)
         return (await client.embed([text]))[0]
 
     @staticmethod
@@ -91,21 +104,22 @@ class AzureAISearchRetriever:
 
 
 class MockRetriever:
-    """内存模拟后端：BM25（基于词频）+ 向量（余弦）+ RRF 融合。
+    """In-memory mock backend: BM25 (term-frequency based) + Vector (cosine) + RRF fusion.
 
-    从 data/raw/* 读取合成文档建立本地索引，便于无 Azure 凭证时开发与评估。
+    Read synthetic documents from data/raw/* to build a local index, convenient
+    for development and evaluation without Azure credentials.
     """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._docs: list[dict[str, Any]] = []
         self._vectors: list[list[float]] = []
-        self._embedder = None  # 延迟初始化
+        self._embedder = None  # lazy initialization
 
     def load_local(self, data_dir: str = "data/raw") -> None:
-        """从 data/raw 递归加载 .md/.kql/.txt 文档。"""
+        """Recursively load .md/.kql/.txt documents from data/raw."""
         if not os.path.isdir(data_dir):
-            logger.warning("本地数据目录不存在：%s", data_dir)
+            logger.warning("Local data directory does not exist: %s", data_dir)
             return
         for root, _, files in os.walk(data_dir):
             category = os.path.basename(root) or "misc"
@@ -115,7 +129,7 @@ class MockRetriever:
                 path = os.path.join(root, fname)
                 with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
-                # 权限：runbooks/kusto 默认公开，postmortems/icm 仅 sre 可见
+                # Permissions: runbooks/kusto default public, postmortems/icm sre-only
                 if category in ("postmortems", "icm_summaries"):
                     groups = ["sre"]
                 else:
@@ -134,11 +148,11 @@ class MockRetriever:
         if self._vectors or not self._docs:
             return
         if self._embedder is None:
-            from app.llm.azure_openai import build_llm_client
+            from app.llm.azure_openai import build_embed_client
 
-            self._embedder = build_llm_client(self.settings)
+            self._embedder = build_embed_client(self.settings)
         texts = [d["content"] for d in self._docs]
-        # 分批避免过长
+        # Batch to avoid overly long requests
         batch = 32
         for i in range(0, len(texts), batch):
             self._vectors.extend(await self._embedder.embed(texts[i:i + batch]))
@@ -147,18 +161,18 @@ class MockRetriever:
         self, query: str, user_group: str, top_k: int = 20
     ) -> list[dict[str, Any]]:
         await self._ensure_embedded()
-        # 先做权限过滤
+        # First do permission filtering
         candidates = filter_docs_by_group(self._docs, user_group)
         if not candidates:
             return []
         candidate_idx = [self._docs.index(c) for c in candidates]
 
-        # BM25 词频打分
+        # BM25 term-frequency scoring
         bm25_scores = self._bm25_scores(query, candidates)
-        # 向量余弦打分
+        # Vector cosine scoring
         vec_scores = await self._vector_scores(query, candidate_idx)
 
-        # RRF 融合
+        # RRF fusion
         k = self.settings.rrf_k
         bm25_rank = sorted(range(len(candidates)), key=lambda i: -bm25_scores[i])
         vec_rank = sorted(range(len(candidates)), key=lambda i: -vec_scores[i])
@@ -190,9 +204,9 @@ class MockRetriever:
 
     async def _vector_scores(self, query: str, idxs: list[int]) -> list[float]:
         if self._embedder is None:
-            from app.llm.azure_openai import build_llm_client
+            from app.llm.azure_openai import build_embed_client
 
-            self._embedder = build_llm_client(self.settings)
+            self._embedder = build_embed_client(self.settings)
         qv = (await self._embedder.embed([query]))[0]
         scores: list[float] = []
         for i in idxs:
@@ -204,7 +218,7 @@ class MockRetriever:
 
 def build_retriever(settings: Settings) -> Retriever:
     if settings.use_mock_backend or not settings.has_azure_search:
-        logger.warning("使用内存 Mock 检索（未配置 Azure AI Search）")
+        logger.warning("Using in-memory Mock retrieval (Azure AI Search not configured)")
         retriever = MockRetriever(settings)
         retriever.load_local()
         return retriever

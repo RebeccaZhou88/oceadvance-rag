@@ -1,1 +1,1 @@
-"""LLM 客户端模块。"""
+"""LLM client module."""

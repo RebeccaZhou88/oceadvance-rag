@@ -39,7 +39,7 @@ jobs:
           PYTHONPATH: "src"
         run: pytest -q
 
-      - name: Eval (RAGAS) — 指标下降阻断合并
+      - name: Eval (RAGAS) — block merge on metric regression
         env:
           USE_MOCK_BACKEND: "true"
           PYTHONPATH: "src"

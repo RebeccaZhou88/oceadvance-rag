@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "oce-rag-backend"
 version = "0.1.0"
-description = "混合检索 + 重排 + 引用溯源 + 权限过滤的企业级 RAG 后端"
+description = "Enterprise-grade RAG backend with hybrid retrieval + rerank + citation traceability + permission filtering"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "OCE RAG Team"}]
@@ -22,7 +22,7 @@ dependencies = [
     "langchain==0.2.16",
     # Azure / OpenAI
     "azure-search-documents==11.5.1",
-    "openai==1.40.6",
+    "openai>=1.68.2,<2.0",
     "tiktoken==0.7.0",
     # Rerank (local cross-encoder)
     "sentence-transformers==3.0.1",
@@ -45,12 +45,18 @@ eval = [
     "deepeval==1.5.1",
     "datasets==2.21.0",
 ]
+governance = [
+    # Knowledge-base quality governance multi-agent (CrewAI is an optional dependency; governance auto-skips when absent)
+    # 0.175 is the last version line compatible with pydantic 2.9 / openai 1.x (crewai>=1.0 requires openai>=2.30)
+    "crewai==0.175.0",
+    "litellm==1.74.9",
+]
 
 [project.scripts]
 oce-rag = "app.main:app"
 
 # === src layout ===
-# 源代码位于 backend/src/ 下，setuptools 从 src/ 发现包
+# Source code is under backend/src/; setuptools discovers packages from src/
 [tool.setuptools]
 include-package-data = true
 package-dir = {"" = "src"}

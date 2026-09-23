@@ -1,1 +1,1 @@
-"""安全与权限过滤模块。"""
+"""Security and permission filtering module."""

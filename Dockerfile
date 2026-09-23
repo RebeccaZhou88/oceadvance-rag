@@ -1,4 +1,4 @@
-# 多阶段构建，减小镜像体积
+# Multi-stage build to reduce image size
 FROM python:3.11-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
@@ -6,7 +6,7 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /build
-# 先复制依赖声明，利用 Docker 缓存
+# Copy dependency manifest first to leverage Docker cache
 COPY backend/pyproject.toml backend/requirements.txt ./
 RUN pip install --upgrade pip && pip install --prefix=/install -r requirements.txt
 
@@ -19,11 +19,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY --from=builder /install /usr/local
-# 前后端分离：backend/ (src layout) + frontend/ (静态)
+# Frontend/backend split: backend/ (src layout) + frontend/ (static)
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 EXPOSE 8000
-# 静态前端目录指向 /app/frontend
+# Static frontend directory points to /app/frontend
 ENV FRONTEND_DIR=/app/frontend
 WORKDIR /app/backend
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

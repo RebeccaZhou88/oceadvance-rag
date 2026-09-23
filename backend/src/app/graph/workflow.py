@@ -1,20 +1,23 @@
-"""LangGraph 工作流装配与对外调用入口。
+"""LangGraph workflow assembly and external call entry point.
 
-流程：
-  START -> intent_check_node -> {chitchat: 直接回答} / {query|followup: retrieve_docs_node}
+Flow:
+  START -> intent_check_node -> {chitchat: answer directly} / {query|followup: retrieve_docs_node}
   retrieve_docs_node -> rerank_sequence_node -> generate_answer_node -> evaluate_answer_node -> END
-  若检索为空则跳过 generate_answer_node 直接回复（节省 Token）
+  If retrieval is empty, skip generate_answer_node and reply directly (saves Token)
 """
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.config import Settings
-from app.llm.azure_openai import build_llm_client
+from app.llm.azure_openai import build_chat_client
 from app.retrieval.rerank import build_reranker
 from app.retrieval.search import build_retriever
+from app.cache import ExactCache
 from app.graph.nodes import (
+    CacheLookupNode,
     IntentCheckNode,
     RetrieveDocsNode,
     RerankSequenceNode,
@@ -23,7 +26,7 @@ from app.graph.nodes import (
 )
 from app.graph.state import GraphState
 
-# Jupyter 环境下可视化工作流图（无 IPython 时静默跳过）
+# Visualize the workflow graph in a Jupyter environment (silently skips without IPython)
 try:
     from IPython.display import Image, display  # type: ignore
 
@@ -42,40 +45,56 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-# 会话级历史存储（原型用内存，生产应换 Redis/数据库）
+# Session-level history storage (in-memory for prototype; production should use Redis/DB)
 _SESSIONS: dict[str, list[dict[str, Any]]] = {}
 
 
 class RAGWorkflow:
-    """封装 LangGraph 编排。"""
+    """Wraps LangGraph orchestration."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.llm = build_llm_client(settings)
+        self.llm = build_chat_client(settings)  # chat path (DashScope qwen)
         self.retriever = build_retriever(settings)
         self.reranker = build_reranker(settings, llm_client=self.llm)
+        # Exact cache (single-turn): enabled by default, keyed by normalized question hash
+        self.cache = ExactCache(kb_version=settings.cache_version) if settings.cache_enabled else None
         self._graph = None
 
     async def a_init(self) -> None:
-        """异步初始化（加载模型/索引）。"""
+        """Async initialization (load model/index)."""
         try:
             self._build_graph()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("LangGraph 不可用，退化为顺序调用：%s", exc)
+            logger.warning("LangGraph unavailable, falling back to sequential execution: %s", exc)
             self._graph = None
 
     def _build_graph(self) -> None:
         from langgraph.graph import END, StateGraph
 
         g = StateGraph(GraphState)
-        # 节点名不能与 GraphState TypedDict 字段重名（LangGraph 强校验）
+        # Node names must NOT collide with GraphState TypedDict fields (LangGraph strict check)
+        g.add_node("cache_lookup_node", CacheLookupNode(self.cache))
         g.add_node("intent_check_node", IntentCheckNode())
         g.add_node("retrieve_docs_node", RetrieveDocsNode(self.retriever, self.settings.hybrid_top_k))
         g.add_node("rerank_sequence_node", RerankSequenceNode(self.reranker, self.settings.final_top_k, self.settings.rerank_strategy))
-        g.add_node("generate_answer_node", GenerateAnswerNode(self.llm))
+        g.add_node("generate_answer_node", GenerateAnswerNode(self.llm, self.cache))
         g.add_node("evaluate_answer_node", EvaluateAnswerNode(self.llm))
 
-        g.set_entry_point("intent_check_node")
+        # Entry point: cache lookup first
+        g.set_entry_point("cache_lookup_node")
+
+        # On cache hit → END (skip entire RAG pipeline)
+        # On cache miss → intent_check
+        def after_cache(state: GraphState) -> str:
+            if state.get("from_cache"):
+                return "__end__"
+            return "intent_check_node"
+
+        g.add_conditional_edges("cache_lookup_node", after_cache, {
+            "intent_check_node": "intent_check_node",
+            "__end__": END,
+        })
 
         def after_intent_check(state: GraphState) -> str:
             if state.get("intent") == "chitchat":
@@ -92,7 +111,7 @@ class RAGWorkflow:
         g.add_edge("evaluate_answer_node", END)
         self._graph = g.compile()
 
-        # 仅 Jupyter 环境画出工作流 DAG（纯终端下 display(Image) 会打警告）
+        # Draw the workflow DAG only in a Jupyter environment (display(Image) warns in a plain terminal)
         if display is not None and Image is not None and _in_jupyter():
             try:
                 display(Image(
@@ -106,8 +125,12 @@ class RAGWorkflow:
     async def arun(
         self, question: str, user_group: str, session_id: str
     ) -> dict[str, Any]:
+        t0 = time.monotonic()
         history = _SESSIONS.setdefault(session_id, [])
-        logging.info("history: %s", history)
+        logger.info(
+            "== [request start] session=%s | group=%s | history_turns=%d | question=%.80r",
+            session_id, user_group, len(history), question,
+        )
         state: GraphState = {
             "question": question,
             "user_group": user_group,
@@ -117,13 +140,24 @@ class RAGWorkflow:
             result = await self._graph.ainvoke(state)
         else:
             result = await self._fallback_run(state)
-        logging.info("result: %s", result)
-        # 更新会话历史(始终用 dict 格式,避免 LangGraph 的 Message 对象污染)
+        # Concise log: only key fields, no full dump
+        answer_len = len(result.get("answer", "") or "")
+        trace_count = len(result.get("trace", []))
+        retrieved_count = len(result.get("retrieved_docs", []))
+        intent = result.get("intent", "-")
+        latency = result.get("latency_ms", 0.0)
+        logger.info(
+            "== [request done] session=%s | intent=%s | retrieved=%d | answer_len=%d | trace=%d steps | "
+            "workflow_latency=%.0fms | total %.2fs",
+            session_id, intent, retrieved_count, answer_len, trace_count,
+            latency, time.monotonic() - t0,
+        )
+        # Update session history (always use dict format, avoid LangGraph Message object pollution)
         history.append({"role": "user", "content": question})
         if "answer" in result:
             history.append({"role": "assistant", "content": result["answer"]})
-        _SESSIONS[session_id] = history[-10:]  # 保留最近 10 条
-        # 清理返回结果:把 LangChain Message 对象转成 dict,并移除 messages(前端不需要)
+        _SESSIONS[session_id] = history[-10:]  # keep last 10
+        # Clean up result: convert LangChain Message objects to dict and remove messages (frontend doesn't need them)
         result = dict(result)
         messages = result.get("messages")
         if messages:
@@ -135,21 +169,28 @@ class RAGWorkflow:
         return result
 
     async def _fallback_run(self, state: GraphState) -> dict[str, Any]:
-        """LangGraph 缺失时的顺序兜底实现。"""
+        """Sequential fallback implementation when LangGraph is missing."""
+        cache_lookup_node = CacheLookupNode(self.cache)
         intent_check_node = IntentCheckNode()
         retrieve_docs_node = RetrieveDocsNode(self.retriever, self.settings.hybrid_top_k)
         rerank_sequence_node = RerankSequenceNode(self.reranker, self.settings.final_top_k, self.settings.rerank_strategy)
-        generate_answer_node = GenerateAnswerNode(self.llm)
+        generate_answer_node = GenerateAnswerNode(self.llm, self.cache)
         evaluate_answer_node = EvaluateAnswerNode(self.llm)
 
         accumulated_trace: list[dict] = []
 
         def _merge(node_result: dict) -> None:
-            """合并节点结果到 state,并手动累积 trace。"""
+            """Merge node result into state and manually accumulate trace."""
             trace_chunk = node_result.pop("trace", [])
             if trace_chunk:
                 accumulated_trace.extend(trace_chunk)
             state.update(node_result)
+
+        # Cache lookup first
+        _merge(await cache_lookup_node(state))
+        if state.get("from_cache"):
+            state["trace"] = accumulated_trace
+            return state
 
         _merge(await intent_check_node(state))
         if state.get("intent") != "chitchat":
@@ -161,8 +202,8 @@ class RAGWorkflow:
         return state
 
     async def a_close(self) -> None:
-        # 释放资源（Azure 客户端等）
+        # Release resources (Azure client etc.)
         close = getattr(self.llm, "aclose", None)
         if callable(close):
             await close()
-            logging.info("LLM 资源已释放")
+            logging.info("LLM resources released")

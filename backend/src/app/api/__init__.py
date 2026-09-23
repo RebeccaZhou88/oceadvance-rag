@@ -1,1 +1,1 @@
-"""API 层：FastAPI 路由与 Pydantic schema。"""
+"""API layer: FastAPI routes and Pydantic schemas."""

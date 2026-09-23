@@ -1,4 +1,4 @@
-"""请求/响应 Pydantic 模型。"""
+"""Request/response Pydantic models."""
 from datetime import datetime
 from typing import Optional
 
@@ -6,22 +6,22 @@ from pydantic import BaseModel, Field
 
 
 class Citation(BaseModel):
-    """引用来源。"""
+    """Citation source."""
     doc_id: str
-    source: str = Field(description="原始文档路径或 URL")
+    source: str = Field(description="Original document path or URL")
     category: str = Field(description="runbook/postmortem/kusto/icm")
-    snippet: str = Field(description="被引用的片段文本")
-    score: float = Field(ge=0.0, description="检索/重排得分（不同策略量纲不同：检索 0-1，LLM 重排 0-10）")
+    snippet: str = Field(description="The referenced text snippet")
+    score: float = Field(ge=0.0, description="Retrieval/rerank score (different strategies have different scales: retrieval 0-1, LLM rerank 0-10)")
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(min_length=1, description="用户问题")
-    user_group: str = Field(description="用户组，用于权限过滤，如 sre/dev/ops")
-    session_id: str = Field(description="多轮对话会话 ID")
+    question: str = Field(min_length=1, description="User question")
+    user_group: str = Field(description="User group, used for permission filtering, e.g. sre/dev/ops")
+    session_id: str = Field(description="Multi-turn conversation session ID")
 
 
 class TraceStep(BaseModel):
-    """单个编排步骤日志。"""
+    """Single orchestration step log."""
     step: str
     status: str
     duration_ms: float
@@ -37,14 +37,17 @@ class ChatResponse(BaseModel):
     latency_ms: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
-    trace: list[TraceStep] = Field(default_factory=list, description="编排步骤日志")
+    from_cache: bool = False
+    intent: str = "query"
+    trace: list[TraceStep] = Field(default_factory=list, description="Orchestration step logs")
+    governance_task_id: Optional[str] = Field(default=None, description="Background task id returned when quality governance rules are matched")
 
 
 class FeedbackRequest(BaseModel):
     session_id: str
     question: str
     answer: str
-    rating: int = Field(ge=1, le=5, description="1-5 分，5 为最满意")
+    rating: int = Field(ge=1, le=5, description="1-5 score, 5 being the most satisfactory")
     comment: Optional[str] = None
 
 

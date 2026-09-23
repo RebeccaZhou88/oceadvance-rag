@@ -1,9 +1,9 @@
-"""RAGAS 评估流水线（设计文档 5.3）。
+"""RAGAS evaluation pipeline (design doc 5.3).
 
-用法：
+Usage:
   python -m eval.run_ragas --dataset data/eval/qa.jsonl
 
-指标：Faithfulness / Answer Relevancy / Context Precision / Context Recall
+Metrics: Faithfulness / Answer Relevancy / Context Precision / Context Recall
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ async def run(dataset_path: str, report_path: str = "data/eval/ragas_report.md")
         try:
             evaluated.append(await _run_pipeline(workflow, item))
         except Exception as exc:  # noqa: BLE001
-            print(f"[ragas] 跳过失败样本 {item.get('id')}: {exc}", file=sys.stderr)
+            print(f"[ragas] Skipping failed sample {item.get('id')}: {exc}", file=sys.stderr)
 
     metrics: dict[str, float] = {}
     try:
@@ -66,7 +66,7 @@ async def run(dataset_path: str, report_path: str = "data/eval/ragas_report.md")
         )
         metrics = {k: float(v) for k, v in result.items()}
     except Exception as exc:  # noqa: BLE001
-        print(f"[ragas] RAGAS 不可用，跳过深度评估：{exc}", file=sys.stderr)
+        print(f"[ragas] RAGAS unavailable, skipping deep evaluation: {exc}", file=sys.stderr)
         metrics = {"note": "ragas_unavailable", "samples": len(evaluated)}
 
     _write_report(report_path, metrics, evaluated)
@@ -75,21 +75,21 @@ async def run(dataset_path: str, report_path: str = "data/eval/ragas_report.md")
 
 def _write_report(path: str, metrics: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# RAGAS 评估报告\n", f"样本数: {len(samples)}\n", "## 指标\n"]
+    lines = ["# RAGAS Evaluation Report\n", f"Samples: {len(samples)}\n", "## Metrics\n"]
     for k, v in metrics.items():
         lines.append(f"- **{k}**: {v}")
-    lines.append("\n## 样例\n")
+    lines.append("\n## Samples\n")
     for s in samples[:5]:
         lines.append(f"### Q: {s.get('question','')}")
-        lines.append(f"- 回答: {s.get('answer','')[:200]}")
+        lines.append(f"- Answer: {s.get('answer','')[:200]}")
         lines.append(f"- Ground truth: {s.get('ground_truth','')[:200]}\n")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    print(f"[ragas] 报告已写入 {path}")
+    print(f"[ragas] Report written to {path}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="运行 RAGAS 评估")
+    parser = argparse.ArgumentParser(description="Run RAGAS evaluation")
     parser.add_argument("--dataset", default="data/eval/qa.jsonl")
     parser.add_argument("--report", default="data/eval/ragas_report.md")
     args = parser.parse_args()

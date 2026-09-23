@@ -1,13 +1,16 @@
 %%{init: {'flowchart': {'curve': 'linear'}}}%%
 graph TD;
 	__start__([<p>__start__</p>]):::first
+	cache_lookup_node(cache_lookup_node)
 	intent_check_node(intent_check_node)
 	retrieve_docs_node(retrieve_docs_node)
 	rerank_sequence_node(rerank_sequence_node)
 	generate_answer_node(generate_answer_node)
 	evaluate_answer_node(evaluate_answer_node)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> intent_check_node;
+	__start__ --> cache_lookup_node;
+	cache_lookup_node -.-> intent_check_node;
+	cache_lookup_node -.-> __end__;
 	evaluate_answer_node --> __end__;
 	generate_answer_node --> evaluate_answer_node;
 	rerank_sequence_node --> generate_answer_node;

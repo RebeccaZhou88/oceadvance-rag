@@ -1,1 +1,1 @@
-"""检索层：混合检索（BM25 + Vector）+ 重排。"""
+"""Retrieval layer: hybrid search (BM25 + Vector) + reranking."""

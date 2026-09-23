@@ -10,17 +10,20 @@ env/
 build/
 dist/
 
-# ===== 环境与密钥 =====
+# ===== Environment & Secrets =====
 .env
 .env.local
 .env.*.local
 !.env.example
 
-# ===== 数据与索引产物 =====
+# ===== Data & Index Artifacts =====
 backend/data/index/
 backend/data/eval/*_report.md
 backend/data/raw/
 !backend/data/raw/.gitkeep
+# Governance task store (runtime SQLite)
+backend/data/governance/
+!backend/data/governance/.gitkeep
 
 # ===== IDE =====
 .idea/
@@ -30,7 +33,7 @@ backend/data/raw/
 .DS_Store
 Thumbs.db
 
-# ===== 缓存与日志 =====
+# ===== Cache & Logs =====
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -41,10 +44,10 @@ htmlcov/
 *.log
 *.log.*
 
-# ===== 评估产物 =====
+# ===== Evaluation Artifacts =====
 backend/eval/_reports/
 
-# ===== LangGraph 临时图 =====
+# ===== LangGraph Temp Graph =====
 backend/OCEAdvanceRAG.png
 
 # ===== Egg-info =====

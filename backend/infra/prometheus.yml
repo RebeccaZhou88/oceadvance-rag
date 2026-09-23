@@ -7,4 +7,4 @@ scrape_configs:
     static_configs:
       - targets: ["rag-api:8000"]
 
-# 告警规则（P95 > 5s 等）可在 alerting 段补充 Alertmanager
+# Alert rules (e.g., P95 > 5s) can be added in the alerting section with Alertmanager

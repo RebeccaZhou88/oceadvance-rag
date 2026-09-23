@@ -1,8 +1,8 @@
-"""Azure OpenAI 客户端封装，未配置凭证时降级为本地 Mock LLM。
+"""Azure OpenAI client wrapper, falls back to local Mock LLM when credentials not configured.
 
-提供统一接口：
+Provides unified interface:
 - embed(texts) -> list[list[float]]
-- chat(messages) -> dict(answer, citations 提示, tokens, latency)
+- chat(messages) -> dict(answer, citations hint, tokens, latency)
 """
 from __future__ import annotations
 
@@ -15,9 +15,24 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
+# Local fallback vector dimension (only used when embedding API unavailable,
+# cannot be used for 1536-dim Azure index)
+MOCK_EMBED_DIM = 256
+
+
+def _mock_embed_one(text: str, dim: int = MOCK_EMBED_DIM) -> list[float]:
+    """Deterministic hash vector: fallback when offline/embedding API fails."""
+    import math
+
+    vec = [0.0] * dim
+    for i, ch in enumerate(text):
+        vec[i % dim] += ord(ch) % 97
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]
+
 
 class BaseLLMClient:
-    """统一 LLM 接口。"""
+    """Unified LLM interface."""
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError
@@ -29,7 +44,7 @@ class BaseLLMClient:
 
 
 class AzureOpenAIClient(BaseLLMClient):
-    """真实 Azure OpenAI 客户端。"""
+    """Real Azure OpenAI client."""
 
     def __init__(self, settings: Settings) -> None:
         from openai import AsyncAzureOpenAI
@@ -44,10 +59,27 @@ class AzureOpenAIClient(BaseLLMClient):
         self._chat_model = settings.azure_openai_chat_deployment
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = await self._client.embeddings.create(
-            model=self._embed_model, input=texts
+        logger.info(
+            "▶ [Azure OpenAI] embedding call started: deployment=%s, endpoint=%s, %d inputs",
+            self._embed_model, self.settings.azure_openai_endpoint, len(texts),
         )
-        return [item.embedding for item in resp.data]
+        t0 = time.monotonic()
+        try:
+            resp = await self._client.embeddings.create(
+                model=self._embed_model, input=texts
+            )
+            vectors = [item.embedding for item in resp.data]
+            logger.info(
+                "✔ [Azure OpenAI] embedding done: returned %d vectors, dim=%d, elapsed %.2fs",
+                len(vectors), len(vectors[0]) if vectors else 0, time.monotonic() - t0,
+            )
+            return vectors
+        except Exception:  # noqa: BLE001
+            logger.error(
+                "✘ [Azure OpenAI] embedding call failed (deployment=%s, elapsed %.2fs)",
+                self._embed_model, time.monotonic() - t0, exc_info=True,
+            )
+            raise
 
     async def chat(
         self, messages: list[dict[str, str]], citations_hint: list[dict] | None = None
@@ -70,31 +102,22 @@ class AzureOpenAIClient(BaseLLMClient):
 
 
 class MockLLMClient(BaseLLMClient):
-    """本地无 Azure 凭证时使用的确定性 Mock，便于开发与测试。"""
+    """Deterministic Mock used locally without Azure credentials, convenient for development and testing."""
 
-    # 简单确定性嵌入：基于字符 hash 归一化到固定维度
-    EMBED_DIM = 256
+    # Simple deterministic embedding: normalize to fixed dimension based on char hash
+    EMBED_DIM = MOCK_EMBED_DIM
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        import math
-
-        results: list[list[float]] = []
-        for text in texts:
-            vec = [0.0] * self.EMBED_DIM
-            for i, ch in enumerate(text):
-                vec[i % self.EMBED_DIM] += ord(ch) % 97
-            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-            results.append([v / norm for v in vec])
-        return results
+        return [_mock_embed_one(t, self.EMBED_DIM) for t in texts]
 
     async def chat(
         self, messages: list[dict[str, str]], citations_hint: list[dict] | None = None
     ) -> dict[str, Any]:
-        # 从 system messages 中提取上下文(含 [1] ... 标记的片段)
+        # Extract context from system messages (chunks marked with [1] ...)
         context_parts = []
         question = ""
         for m in messages:
-            if m["role"] == "system" and "检索到的上下文" in m.get("content", ""):
+            if m["role"] == "system" and "retrieved context" in m.get("content", ""):
                 context_parts.append(m["content"])
             elif m["role"] == "user":
                 question = m.get("content", "")
@@ -103,13 +126,13 @@ class MockLLMClient(BaseLLMClient):
             context_text = "\n".join(context_parts)
             answer = self._generate_answer(question, context_text, citations_hint or [])
         else:
-            # 闲聊或无上下文:用启发式回应
-            if any(c in question for c in ("你好", "谢谢", "再见")):
-                answer = "你好！我是运维知识库助手，可以帮你解答运维、Runbook、Kusto 查询等相关问题。"
+            # Small talk or no context: respond with heuristics
+            if any(c in question for c in ("hello", "hi", "thanks", "thank you", "bye")):
+                answer = "Hello! I'm the ops knowledge base assistant. I can help you with questions about operations, Runbooks, Kusto queries, and more."
             else:
-                answer = "未找到相关知识，无法回答该问题。"
+                answer = "No relevant knowledge found, unable to answer this question."
 
-        # 粗略 token 估算
+        # Rough token estimation
         input_tokens = sum(len(m["content"]) // 4 for m in messages)
         output_tokens = len(answer) // 4
         return {
@@ -120,11 +143,11 @@ class MockLLMClient(BaseLLMClient):
         }
 
     def _generate_answer(self, question: str, context: str, citations: list[dict]) -> str:
-        """真正的"读片段→综合分析→组织答案",模拟 LLM 的 RAG 回答。"""
+        """Real 'read chunks -> synthesize analysis -> compose answer', simulating LLM RAG response."""
         import re
         import json
 
-        # 从 context 中提取每个 [N] 片段的正文
+        # Extract the body of each [N] chunk from context
         chunks: list[tuple[int, str]] = []
         for m in re.finditer(r"\[(\d+)\]\s*\((\w+)\)\s*(.+?)(?=\[\d+\]|\Z)", context, re.DOTALL):
             idx = int(m.group(1))
@@ -132,14 +155,14 @@ class MockLLMClient(BaseLLMClient):
             chunks.append((idx, text))
 
         if not chunks:
-            return "综合检索到的片段信息,未找到足够内容回答该问题。"
+            return "Based on the retrieved chunk information, not enough content found to answer this question."
 
-        # 按关键词匹配片段,提取相关句
+        # Match chunks by keywords, extract relevant sentences
         question_lower = question.lower()
         keywords = re.findall(r"[\u4e00-\u9fff]{2,}|[a-zA-Z]+", question_lower)
-        keywords = [k for k in keywords if k not in ("如何", "怎么", "什么", "排查", "问题", "解决", "查看", "写")]
+        keywords = [k for k in keywords if k not in ("how", "what", "why", "when", "where", "which", "troubleshoot", "issue", "problem", "solve", "fix", "check", "view", "write")]
 
-        # 从每个片段中找含关键词的句子
+        # Find sentences containing keywords from each chunk
         extracted: list[tuple[int, str]] = []
         for idx, text in chunks:
             sentences = re.split(r"(?<=[。！？.!?\n])", text)
@@ -148,17 +171,17 @@ class MockLLMClient(BaseLLMClient):
                 if not sent:
                     continue
                 if any(k.lower() in sent.lower() for k in keywords):
-                    # 取前 120 字
+                    # Take first 120 chars
                     extracted.append((idx, sent[:120].replace("\n", " ")))
 
-        # 组织答案
+        # Compose answer
         lines: list[str] = []
 
-        # 1. 总结段
+        # 1. Summary paragraph
         if extracted:
-            lines.append(f"根据运维知识库检索到的 {len(chunks)} 条相关文档,针对「{question[:40]}」问题,总结如下:")
+            lines.append(f"Based on {len(chunks)} relevant documents retrieved from the ops knowledge base, here is a summary for the question '{question[:40]}':")
             lines.append("")
-            # 去重后取 3-5 条最相关句子
+            # After deduplication, take 3-5 most relevant sentences
             seen = set()
             summary_sents = []
             for idx, sent in extracted:
@@ -170,28 +193,28 @@ class MockLLMClient(BaseLLMClient):
                 cat = citations[idx - 1]["category"] if idx - 1 < len(citations) else ""
                 lines.append(f"• {sent}[{idx}]  ({cat})")
         else:
-            # 没匹配到关键词时,用第一个片段的前 200 字做概述
+            # When no keywords matched, use first 200 chars of the first chunk as overview
             idx, text = chunks[0]
-            lines.append(f"针对「{question[:40]}」问题,综合运维知识库信息:")
+            lines.append(f"For the question '{question[:40]}', synthesizing ops knowledge base info:")
             lines.append("")
-            lines.append(f"从 Runbook 文档中可知,该问题的排查需要按标准流程逐步定位[{idx}]。")
-            # 提取关键步骤
+            lines.append(f"According to the Runbook documentation, troubleshooting this issue requires step-by-step localization following the standard process[{idx}].")
+            # Extract key steps
             steps = re.findall(r"[-*]\s*(.+?)(?:\n|$)", text)
             steps += re.findall(r"\d+\.\s*(.+?)(?:\n|$)", text)
             if steps:
                 lines.append("")
-                lines.append("## 推荐排查步骤")
+                lines.append("## Recommended Troubleshooting Steps")
                 for step in steps[:5]:
                     lines.append(f"  {step.strip()}[{idx}]")
 
         lines.append("")
 
-        # 2. 引用的 Kusto 代码块(如果有 kusto 片段)
+        # 2. Referenced Kusto code blocks (if any kusto chunks)
         kusto_chunks = [(idx, t) for idx, t in chunks if citations[idx - 1]["category"] == "kusto_templates" if idx - 1 < len(citations)]
         if kusto_chunks:
             idx, text = kusto_chunks[0]
-            lines.append("## 相关 Kusto 查询模板")
-            # 提取 Kusto 语句
+            lines.append("## Related Kusto Query Templates")
+            # Extract Kusto statements
             kql_lines = re.findall(r"AppGwLogs.*?(?=\n\s*\n|$)", text, re.DOTALL)
             if not kql_lines:
                 kql_lines = [text[:200]]
@@ -199,10 +222,10 @@ class MockLLMClient(BaseLLMClient):
                 lines.append("```kusto")
                 lines.append(kql.strip())
                 lines.append("```")
-            lines.append(f"[来源 {citations[idx-1]['source']}]")
+            lines.append(f"[Source: {citations[idx-1]['source']}]")
 
         lines.append("")
-        lines.append("## 参考来源")
+        lines.append("## References")
         for idx, text in chunks:
             if idx - 1 < len(citations):
                 src = citations[idx - 1]["source"]
@@ -213,10 +236,11 @@ class MockLLMClient(BaseLLMClient):
 
 
 class LLMClient(BaseLLMClient):
-    """通过 OpenAI 兼容接口调用 QWen 或 DeepSeek。"""
+    """Call QWen or DeepSeek via OpenAI-compatible API."""
 
     def __init__(self, settings: Settings) -> None:
         from langchain_openai import ChatOpenAI
+        from openai import AsyncOpenAI
 
         self.settings = settings
         self._llm = ChatOpenAI(
@@ -225,19 +249,50 @@ class LLMClient(BaseLLMClient):
             base_url=settings.model_base_url,
             temperature=0.0,
         )
+        # embeddings API on the same OpenAI-compatible endpoint (DashScope text-embedding-v2, etc.)
+        self._embed_client = AsyncOpenAI(
+            api_key=settings.api_key,
+            base_url=settings.model_base_url,
+        )
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """DeepSeek 无 embedding 接口,回退 Mock 嵌入。"""
-        import math
-        dim = 256
-        results: list[list[float]] = []
-        for text in texts:
-            vec = [0.0] * dim
-            for i, ch in enumerate(text):
-                vec[i % dim] += ord(ch) % 97
-            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-            results.append([v / norm for v in vec])
-        return results
+        """Call OpenAI-compatible embeddings API to generate real vectors.
+
+        On API failure (no such model / no quota / offline), fall back to
+        deterministic hash vector and warn, ensuring local mock retrieval still
+        works; Azure upload path will be intercepted by dimension validation in
+        the indexer.
+        """
+        logger.info(
+            "▶ embedding call started: model=%s, endpoint=%s, %d input texts",
+            self.settings.embedding_model_name,
+            self.settings.model_base_url,
+            len(texts),
+        )
+        t0 = time.monotonic()
+        try:
+            resp = await self._embed_client.embeddings.create(
+                model=self.settings.embedding_model_name,
+                input=list(texts),
+            )
+            vectors = [item.embedding for item in resp.data]
+            logger.info(
+                "✔ embedding done: returned %d vectors, dim=%d, elapsed %.2fs",
+                len(vectors),
+                len(vectors[0]) if vectors else 0,
+                time.monotonic() - t0,
+            )
+            return vectors
+        except Exception:  # noqa: BLE001
+            logger.error(
+                "✘ embedding API call failed (model=%s, elapsed %.2fs), falling back to %d-dim hash vector; "
+                "to upload to Azure, check LLM_EMBEDDING_MODEL_NAME/quota",
+                self.settings.embedding_model_name,
+                time.monotonic() - t0,
+                MOCK_EMBED_DIM,
+                exc_info=True,
+            )
+            return [_mock_embed_one(t) for t in texts]
 
     async def chat(
         self, messages: list[dict[str, str]], citations_hint: list[dict] | None = None
@@ -260,7 +315,7 @@ class LLMClient(BaseLLMClient):
         latency_ms = (time.perf_counter() - start) * 1000
 
         answer = resp.content if hasattr(resp, "content") else str(resp)
-        # 尝试从 usage_metadata 取 token
+        # Try to get tokens from usage_metadata
         usage = getattr(resp, "usage_metadata", None) or {}
         return {
             "answer": answer or "",
@@ -270,17 +325,59 @@ class LLMClient(BaseLLMClient):
         }
 
 
-def build_llm_client(settings: Settings) -> BaseLLMClient:
-    """工厂方法:DeepSeek/QWen > Azure > Mock。"""
-    logger.info("settings: %s", settings)
-    if settings.has_llm:
-        logger.info("使用 QWen or DeepSeek LLM (model=%s)", settings.model_name)
-        return LLMClient(settings)
-    if settings.has_azure_openai:
-        logger.info("使用 Azure OpenAI")
+def build_embed_client(settings: Settings) -> BaseLLMClient:
+    """Factory: embedding-specific client.
+
+    Priority (vector write and query must share the same source):
+    1. Azure OpenAI has embedding deployment -> use Azure (your configured ada-002 = 1536 dim)
+    2. OpenAI-compatible endpoint (DashScope text-embedding-v2 = 1536 dim)
+    3. Mock (256-dim hash, for local debugging, cannot upload to Azure)
+    """
+    if settings.has_azure_openai and settings.azure_openai_embedding_deployment:
+        logger.info(
+            "[Embed] Azure OpenAI | endpoint=%s | deployment=%s",
+            settings.azure_openai_endpoint, settings.azure_openai_embedding_deployment,
+        )
         return AzureOpenAIClient(settings)
-    logger.warning("使用 Mock LLM(未配置任何 LLM 凭证)")
+    if settings.has_llm:
+        logger.info(
+            "[Embed] OpenAI-compatible endpoint | base=%s | model=%s",
+            settings.model_base_url, settings.embedding_model_name,
+        )
+        return LLMClient(settings)
+    logger.warning("[Embed] falling back to Mock LLM (256-dim hash, cannot upload to Azure)")
     return MockLLMClient()
+
+
+def build_chat_client(settings: Settings) -> BaseLLMClient:
+    """Factory: chat-specific client.
+
+    Priority (independent of embedding pipeline):
+    1. OpenAI-compatible endpoint (DashScope qwen -- has free quota)
+    2. Azure OpenAI (must configure chat deployment)
+    3. Mock (pure heuristic response)
+    """
+    if settings.has_llm:
+        logger.info(
+            "[Chat] OpenAI-compatible endpoint | model=%s | base=%s",
+            settings.model_name, settings.model_base_url,
+        )
+        return LLMClient(settings)
+    if settings.has_azure_openai and settings.azure_openai_chat_deployment:
+        logger.info(
+            "[Chat] Azure OpenAI | deployment=%s", settings.azure_openai_chat_deployment,
+        )
+        return AzureOpenAIClient(settings)
+    logger.warning("[Chat] falling back to Mock LLM (heuristic response)")
+    return MockLLMClient()
+
+
+def build_llm_client(settings: Settings) -> BaseLLMClient:
+    """Default factory for backward compatibility (embed takes priority, chat pipeline automatically uses the same client).
+
+    New code should explicitly choose build_embed_client / build_chat_client.
+    """
+    return build_embed_client(settings)
 
 
 def new_session_id() -> str:

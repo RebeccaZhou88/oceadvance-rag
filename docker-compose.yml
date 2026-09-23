@@ -12,7 +12,7 @@ services:
       - LOG_LEVEL=INFO
       - FRONTEND_DIR=/app/frontend
     volumes:
-      # 开发时挂载数据目录便于热更新
+      # Mount data directory for hot reload during development
       - ./backend/data:/app/backend/data:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

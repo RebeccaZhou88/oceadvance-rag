@@ -1,11 +1,11 @@
-"""重排模块：支持三种策略。
+"""Reranking module: supports three strategies.
 
-- none:            不重排，直接取前 final_top_k（仍记指标，latency=0）
-- cross-encoder:    本地 Cross-Encoder（BAAI/bge-reranker-base）
-- llm:              用 LLM 对 Top-20 逐条打分
-- semantic:         语义已在检索层做，这里只截断（等同 noop）
+- none:            No reranking, directly take top final_top_k (still records metrics, latency=0)
+- cross-encoder:   Local Cross-Encoder (BAAI/bge-reranker-base)
+- llm:             Use LLM to score Top-20 one by one
+- semantic:        Semantic search already done at retrieval layer, only truncate here (same as noop)
 
-所有路径都会调 RECORD_RERANK，确保「重排平均延迟」指标不为 0。
+All paths call RECORD_RERANK to ensure the "rerank average latency" metric is not 0.
 """
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 class Reranker(Protocol):
-    """重排协议：返回**按重排分数降序排好**的完整 docs 列表（不截断）。"""
+    """Reranker protocol: returns the full docs list **sorted descending by rerank score** (no truncation)."""
 
     async def rerank(
         self, query: str, docs: list[dict[str, Any]], top_k: int = 5
     ) -> list[dict[str, Any]]:
-        """返回已排好序的 docs 全量，由调用方按 top_k 截断。"""
+        """Return the fully sorted docs list; caller truncates by top_k."""
 
 
 class NoopReranker:
-    """不做真正重排，按现有 score 排序（返回全量，不截断）。"""
+    """No actual reranking, sort by existing score (return full list, no truncation)."""
 
     async def rerank(
         self, query: str, docs: list[dict[str, Any]], top_k: int = 5
@@ -39,11 +39,11 @@ class NoopReranker:
 
 
 class CrossEncoderReranker:
-    """本地 Cross-Encoder 重排。"""
+    """Local Cross-Encoder reranking."""
 
     def __init__(self, model_name: str = "BAAI/bge-reranker-base") -> None:
         self._model_name = model_name
-        self._model = None   # None=未加载, False=加载失败, 对象=成功
+        self._model = None   # None=not loaded, False=load failed, object=success
         self._logged_fail = False
 
     def _load(self) -> None:
@@ -51,12 +51,12 @@ class CrossEncoderReranker:
             return
         try:
             from sentence_transformers import CrossEncoder
-            logger.info("正在加载 CrossEncoder 重排模型 %s ...", self._model_name)
+            logger.info("Loading CrossEncoder rerank model %s ...", self._model_name)
             self._model = CrossEncoder(self._model_name)
-            logger.info("CrossEncoder 加载完成。")
+            logger.info("CrossEncoder loaded.")
         except Exception as exc:  # noqa: BLE001
             if not self._logged_fail:
-                logger.warning("CrossEncoder 加载失败 (%s)，退化为无重排。首次加载需下载 ~400MB 模型。", exc)
+                logger.warning("CrossEncoder load failed (%s), falling back to no reranking. First load needs to download ~400MB model.", exc)
                 self._logged_fail = True
             self._model = False
 
@@ -78,7 +78,7 @@ class CrossEncoderReranker:
 
 
 class LLMReranker:
-    """LLM 批量重排。让 LLM 直接输出 JSON 数组，更鲁棒。"""
+    """LLM batch reranking. Let LLM directly output a JSON array, more robust."""
 
     def __init__(self, llm_client) -> None:
         self._llm = llm_client
@@ -93,7 +93,7 @@ class LLMReranker:
         joined = "\n".join(
             f"[{i}] {d.get('content', '')[:200]}" for i, d in enumerate(docs)
         )
-        # 要 LLM 输出严格 JSON，避免 idx:score 解析脆弱
+        # Ask LLM to output strict JSON to avoid fragile idx:score parsing
         prompt = (
             "You are a relevance evaluator. Rate each doc snippet 0-10 against the query.\n"
             "Return ONLY a JSON array like [8,3,6,0,9] — no other text.\n"
@@ -104,15 +104,15 @@ class LLMReranker:
             text = (resp.get("answer") or "").strip()
             scores = self._parse_scores(text, len(docs))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("LLMReranker 调用/解析失败: %s，退化为原序", exc)
+            logger.warning("LLMReranker call/parse failed: %s, falling back to original order", exc)
             scores = [float(d.get("score", 0.0)) for d in docs]
 
         for i, d in enumerate(docs):
             d["rerank_score"] = scores[i] if i < len(scores) else 0.0
 
-        # 记录日志帮助排查
+        # Log to help troubleshooting
         logger.info(
-            "LLMRerank 结果: %s",
+            "LLMRerank result: %s",
             [(i, scores[i], docs[i].get("source", "")) for i in range(min(len(docs), 5))],
         )
 
@@ -122,10 +122,10 @@ class LLMReranker:
 
     @staticmethod
     def _parse_scores(text: str, expected: int) -> list[float]:
-        """尽力从 LLM 输出解析出 float 列表。支持 JSON / 逗号分隔 / 纯数字。"""
+        """Best-effort parse a float list from LLM output. Supports JSON / comma-separated / plain numbers."""
         import re
 
-        # 尝试直接 json.loads
+        # Try direct json.loads
         try:
             import json
             obj = json.loads(text)
@@ -134,7 +134,7 @@ class LLMReranker:
         except Exception:
             pass
 
-        # 兜底：正则捞所有数字
+        # Fallback: regex extract all numbers
         nums = re.findall(r"\d+(?:\.\d+)?", text)
         out = []
         for n in nums[:expected]:
@@ -142,7 +142,7 @@ class LLMReranker:
                 out.append(float(n))
             except ValueError:
                 continue
-        # 长度不够补 0
+        # Pad with 0 if length insufficient
         while len(out) < expected:
             out.append(0.0)
         return out
@@ -159,11 +159,11 @@ def build_reranker(settings: Settings, llm_client=None) -> Reranker:
     if strategy == "llm":
         logger.info("Reranker: llm (strategy=llm)")
         if llm_client is None:
-            from app.llm.azure_openai import build_llm_client
-            llm_client = build_llm_client(settings)
+            from app.llm.azure_openai import build_chat_client
+            llm_client = build_chat_client(settings)
         return LLMReranker(llm_client)
     if strategy == "semantic":
-        logger.info("Reranker: noop (strategy=semantic, 语义已在检索层做)")
+        logger.info("Reranker: noop (strategy=semantic, semantic search done at retrieval layer)")
         return NoopReranker()
-    logger.warning("Reranker: 未知策略 '%s'，退回 noop", strategy)
+    logger.warning("Reranker: unknown strategy '%s', falling back to noop", strategy)
     return NoopReranker()

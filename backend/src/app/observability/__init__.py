@@ -1,1 +1,1 @@
-"""可观测性模块：Prometheus 指标采集与告警阈值。"""
+"""Observability module: Prometheus metric collection and alert thresholds."""

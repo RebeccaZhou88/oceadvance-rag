@@ -1,1 +1,1 @@
-"""评估流水线：RAGAS / DeepEval 离线评估。"""
+"""Evaluation pipeline: RAGAS / DeepEval offline evaluation."""

@@ -1,9 +1,9 @@
-"""DeepEval 评估流水线（设计文档 5.3）。
+"""DeepEval evaluation pipeline (design doc 5.3).
 
-用法：
+Usage:
   python -m eval.run_deepeval --dataset data/eval/qa.jsonl
 
-指标：Faithfulness / Answer Relevancy（基于 DeepEval 的 GEval/指标）
+Metrics: Faithfulness / Answer Relevancy (based on DeepEval's GEval/metrics)
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def run(dataset_path: str, report_path: str = "data/eval/deepeval_report.m
         try:
             evaluated.append(await _evaluate_item(workflow, item))
         except Exception as exc:  # noqa: BLE001
-            print(f"[deepeval] 跳过 {item.get('id')}: {exc}", file=sys.stderr)
+            print(f"[deepeval] Skipping {item.get('id')}: {exc}", file=sys.stderr)
 
     metrics: dict[str, Any] = {"samples": len(evaluated)}
     try:
@@ -65,7 +65,7 @@ async def run(dataset_path: str, report_path: str = "data/eval/deepeval_report.m
         metrics["faithfulness"] = sum(faith_scores) / max(len(faith_scores), 1)
         metrics["answer_relevancy"] = sum(rel_scores) / max(len(rel_scores), 1)
     except Exception as exc:  # noqa: BLE001
-        print(f"[deepeval] DeepEval 不可用：{exc}", file=sys.stderr)
+        print(f"[deepeval] DeepEval unavailable: {exc}", file=sys.stderr)
         metrics["note"] = "deepeval_unavailable"
 
     _write_report(report_path, metrics, evaluated)
@@ -74,16 +74,16 @@ async def run(dataset_path: str, report_path: str = "data/eval/deepeval_report.m
 
 def _write_report(path: str, metrics: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# DeepEval 评估报告\n", f"样本数: {len(samples)}\n", "## 指标\n"]
+    lines = ["# DeepEval Evaluation Report\n", f"Samples: {len(samples)}\n", "## Metrics\n"]
     for k, v in metrics.items():
         lines.append(f"- **{k}**: {v}")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    print(f"[deepeval] 报告已写入 {path}")
+    print(f"[deepeval] Report written to {path}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="运行 DeepEval 评估")
+    parser = argparse.ArgumentParser(description="Run DeepEval evaluation")
     parser.add_argument("--dataset", default="data/eval/qa.jsonl")
     parser.add_argument("--report", default="data/eval/deepeval_report.md")
     args = parser.parse_args()

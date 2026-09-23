@@ -1,4 +1,4 @@
-"""FastAPI 路由：/chat /feedback /health /metrics。"""
+"""FastAPI routes: /chat /feedback /health /metrics."""
 import time
 from typing import TYPE_CHECKING
 import logging
@@ -14,6 +14,7 @@ from app.api.schemas import (
 from app.config import get_settings
 from app.observability.metrics import (
     FEEDBACK_SCORE,
+    RECORD_BUSINESS,
     RECORD_FEEDBACK,
     RECORD_REQUEST,
     RECORD_TOKEN_USAGE,
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
-# 运行时注入的工作流实例（由 main.py lifespan 注入）
+# Runtime-injected workflow instance (injected by main.py lifespan)
 _workflow: "RAGWorkflow | None" = None
 
 
@@ -49,19 +50,23 @@ async def health() -> HealthResponse:
 
 
 def _detect_backend(settings) -> str:
-    if settings.has_llm:
-        return "llm"
-    if settings.has_azure_openai and settings.has_azure_search:
-        return "azure"
-    return "mock"
+    """Determine the retrieval backend based on has_azure_search and use_mock_backend.
+
+    Note: the chat pipeline (has_llm) is unrelated to the retrieval backend, do not include it in this check.
+    """
+    if settings.use_mock_backend or not settings.has_azure_search:
+        return "mock"
+    # At this point = Azure AI Search is actually in use (pure vector / hybrid both count as azure)
+    return "azure"
 
 
 @router.get("/config")
 async def config() -> dict:
-    """暴露当前运行配置，供前端展示。"""
+    """Expose the current runtime configuration for the frontend to display."""
     settings = get_settings()
     return {
         "backend": _detect_backend(settings),
+        "search_mode": settings.azure_search_mode,
         "rerank_strategy": settings.rerank_strategy,
         "hybrid_top_k": settings.hybrid_top_k,
         "final_top_k": settings.final_top_k,
@@ -89,10 +94,36 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     latency_ms = (time.perf_counter() - start) * 1000
     RECORD_REQUEST(latency_ms=latency_ms, status="ok")
+
+    # Business latency = end-to-end - evaluate_answer (online evaluation) duration
+    trace = result.get("trace", [])
+    eval_ms = sum(
+        t.get("duration_ms", 0.0)
+        for t in trace
+        if t.get("step") == "evaluate_answer" and t.get("status") != "skipped"
+    )
+    business_ms = max(0.0, latency_ms - eval_ms)
+    RECORD_BUSINESS(business_ms)
+
     RECORD_TOKEN_USAGE(
         input_tokens=result.get("input_tokens", 0),
         output_tokens=result.get("output_tokens", 0),
     )
+
+    # Quality governance conditional routing: empty recall / low evaluation score -> async trigger CrewAI, does not block answer
+    governance_task_id = None
+    from app.api.governance_routes import _manager as _gov_manager
+    if _gov_manager is not None:
+        try:
+            governance_task_id = await _gov_manager.maybe_trigger_after_chat(
+                result=result,
+                question=req.question,
+                user_group=req.user_group,
+                session_id=req.session_id,
+            )
+        except Exception:  # noqa: BLE001
+            logging.getLogger("app").exception("Governance trigger failed (does not affect main flow)")
+
     return ChatResponse(
         answer=result["answer"],
         citations=result.get("citations", []),
@@ -101,7 +132,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
         latency_ms=latency_ms,
         input_tokens=result.get("input_tokens", 0),
         output_tokens=result.get("output_tokens", 0),
+        from_cache=result.get("from_cache", False),
+        intent=result.get("intent", "query"),
         trace=result.get("trace", []),
+        governance_task_id=governance_task_id,
     )
 
 
@@ -109,7 +143,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 async def feedback(req: FeedbackRequest) -> FeedbackResponse:
     RECORD_FEEDBACK(rating=req.rating)
     FEEDBACK_SCORE.observe(req.rating)
-    # 真实场景可落库用于后续离线评估
+    # In real scenarios this can be persisted for offline evaluation later
     return FeedbackResponse()
 
 

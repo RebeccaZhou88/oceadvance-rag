@@ -1,21 +1,24 @@
-"""LangGraph 节点实现。
+"""LangGraph node implementations.
 
-每个节点是一个可调用类（__call__ 为 async），配置走 __init__，
-LangGraph 调节点时走可调用对象协议，签名统一为
+Each node is a callable class (__call__ is async), configured via __init__.
+LangGraph invokes nodes via the callable protocol with a unified signature:
     async def __call__(self, state: GraphState) -> dict
 
-节点：
-1. IntentCheckNode    - 意图识别（query/followup/chitchat）
-2. RetrieveDocsNode   - 混合检索 + 权限过滤
-3. RerankSequenceNode - 重排 + 上下文组装（记录 before/after 对比）
-4. GenerateAnswerNode - 生成带引用回答
-5. EvaluateAnswerNode - 在线轻量评估（Faithfulness / Relevance / Hallucination）
+Nodes:
+1. IntentCheckNode    - intent classification (query/followup/chitchat)
+2. RetrieveDocsNode   - hybrid retrieval + permission filtering
+3. RerankSequenceNode - rerank + context assembly (records before/after comparison)
+4. GenerateAnswerNode - generate cited answer
+5. EvaluateAnswerNode - online lightweight evaluation (Faithfulness / Relevance / Hallucination)
 
-每个节点都会往 state.trace 追加一条结构化步骤日志，供前端展示编排过程。
+Each node appends a structured step log to state.trace for the frontend to display the orchestration process,
+and also logs concise key info to the terminal via logger.info for real-time observability.
 """
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import time
 from typing import Any
@@ -24,11 +27,14 @@ from app.observability.metrics import (
     RECORD_LLM,
     RECORD_RETRIEVAL,
     RECORD_FAITHFULNESS,
+    RECORD_NODE,
+    RECORD_CACHE,
 )
 from app.retrieval.rerank import Reranker
 from app.retrieval.search import Retriever
 from app.security.permissions import assert_no_leak, build_search_filter
 from app.llm.azure_openai import BaseLLMClient
+from app.cache import ExactCache
 from app.graph.state import GraphState
 from app.prompts import (
     CHITCHAT_SYSTEM_PROMPT,
@@ -37,9 +43,11 @@ from app.prompts import (
     build_context,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _trace(step: str, status: str, duration_ms: float, **detail) -> dict[str, Any]:
-    """构造一条 trace 记录。"""
+    """Build a trace record."""
     return {
         "step": step,
         "status": status,
@@ -49,17 +57,93 @@ def _trace(step: str, status: str, duration_ms: float, **detail) -> dict[str, An
     }
 
 
+class CacheLookupNode:
+    """Exact cache lookup node — runs before everything else.
+
+    On a hit, returns the cached answer + citations and sets from_cache=True
+    so the workflow can route directly to END, skipping the entire RAG pipeline.
+    On a miss, returns from_cache=False and the workflow continues to intent_check.
+    """
+
+    def __init__(self, cache: ExactCache | None = None) -> None:
+        self.cache = cache
+
+    async def __call__(self, state: GraphState) -> dict[str, Any]:
+        start = time.perf_counter()
+        question = state.get("question", "")
+        user_group = state.get("user_group", "ops")
+
+        # Cache disabled or not configured → miss
+        if self.cache is None:
+            duration_ms = (time.perf_counter() - start) * 1000
+            RECORD_NODE("cache_lookup", duration_ms)
+            RECORD_CACHE(hit=False)
+            logger.info("s [cache_lookup] disabled | %.2fms", duration_ms)
+            return {
+                "from_cache": False,
+                "trace": [_trace(
+                    "cache_lookup", "skipped", duration_ms,
+                    reason="cache disabled",
+                )],
+            }
+
+        logger.info(">> [cache_lookup] question=%.60r | group=%s", question, user_group)
+        cached = self.cache.get(question, user_group)
+        duration_ms = (time.perf_counter() - start) * 1000
+        RECORD_NODE("cache_lookup", duration_ms)
+
+        if cached is not None:
+            RECORD_CACHE(hit=True, size=len(self.cache._store))
+            logger.info(
+                "v [cache_lookup] HIT | %.2fms | answer_len=%d | citations=%d",
+                duration_ms, len(cached.get("answer", "")), len(cached.get("citations", [])),
+            )
+            return {
+                "answer": cached["answer"],
+                "citations": cached.get("citations", []),
+                "from_cache": True,
+                "intent": "query",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "latency_ms": duration_ms,
+                "trace": [_trace(
+                    "cache_lookup", "hit", duration_ms,
+                    question=question[:60],
+                    user_group=user_group,
+                    citations=len(cached.get("citations", [])),
+                    kb_version=cached.get("kb_version", ""),
+                )],
+            }
+
+        RECORD_CACHE(hit=False, size=len(self.cache._store))
+        logger.info("x [cache_lookup] MISS | %.2fms", duration_ms)
+        return {
+            "from_cache": False,
+            "trace": [_trace(
+                "cache_lookup", "miss", duration_ms,
+                question=question[:60],
+                user_group=user_group,
+            )],
+        }
+
+
 class IntentCheckNode:
-    """意图识别：query / followup / chitchat。无外部依赖，纯启发式。"""
+    """Intent classification: query / followup / chitchat. No external dependencies, pure heuristic."""
 
     async def __call__(self, state: GraphState) -> dict[str, Any]:
         start = time.perf_counter()
         question = state.get("question", "")
         history = state.get("messages", [])
-        followup_cues = ("它", "这个", "上面", "那", "另外", "接着", "继续")
-        is_followup = any(c in question for c in followup_cues) and bool(history)
-        chitchat_cues = ("你好", "谢谢", "再见", "你是谁")
-        is_chitchat = any(c in question for c in chitchat_cues)
+        logger.info(">> [intent_check] question=%.60r | history_turns=%d", question, len(history))
+        # Use word-boundary matching so cues do not fire inside other words
+        # (e.g. "hi" inside "high"/"this", "it" inside "with"/"site")
+        followup_cues = ("it", "this", "that", "above", "also", "then", "continue", "furthermore", "another")
+        is_followup = (
+            any(re.search(rf"\b{re.escape(c)}\b", question.lower()) for c in followup_cues)
+            and bool(history)
+        )
+        chitchat_cues = ("hello", "hi", "thanks", "thank you", "bye", "goodbye", "who are you")
+        is_chitchat = any(re.search(rf"\b{re.escape(c)}\b", question.lower()) for c in chitchat_cues)
         if is_chitchat:
             intent = "chitchat"
         elif is_followup:
@@ -67,6 +151,8 @@ class IntentCheckNode:
         else:
             intent = "query"
         duration_ms = (time.perf_counter() - start) * 1000
+        logger.info("v [intent_check] intent=%s | duration %.2fms", intent, duration_ms)
+        RECORD_NODE("intent_check", duration_ms)
         return {
             "intent": intent,
             "trace": [_trace(
@@ -79,7 +165,7 @@ class IntentCheckNode:
 
 
 class RetrieveDocsNode:
-    """混合检索 + 权限过滤。"""
+    """Hybrid retrieval + permission filtering."""
 
     def __init__(self, retriever: Retriever, top_k: int = 20):
         self.retriever = retriever
@@ -90,20 +176,42 @@ class RetrieveDocsNode:
         question = state["question"]
         user_group = state.get("user_group", "ops")
         search_filter = build_search_filter(user_group)
+        logger.info(
+            ">> [retrieve_docs] query=%.60r | user_group=%s | filter=%s | top_k=%d",
+            question, user_group, search_filter, self.top_k,
+        )
         try:
             docs = await self.retriever.hybrid_search(question, user_group, top_k=self.top_k)
             assert_no_leak(docs, user_group)
             status = "ok"
         except PermissionError as exc:
             duration_ms = (time.perf_counter() - start) * 1000
+            logger.error("x [retrieve_docs] permission filter failed: %s | duration %.2fms", exc, duration_ms)
+            RECORD_NODE("retrieve_docs", duration_ms)
             return {"retrieved_docs": [], "trace": [_trace(
                 "retrieve_docs", "error", duration_ms,
-                error=f"权限过滤失效: {exc}",
+                error=f"permission filter failed: {exc}",
             )]}
         recalled = self.top_k
         hits = len(docs)
-        RECORD_RETRIEVAL(hits=hits, recalled=recalled)
+        from app.config import get_settings
+        threshold = get_settings().effective_threshold
+        scores = [float(d.get("score", 0.0)) for d in docs]
+        top1_score = max(scores) if scores else 0.0
+        effective_count = sum(1 for s in scores if s > threshold)
+        RECORD_RETRIEVAL(hits=hits, recalled=recalled, scores=scores, threshold=threshold)
         duration_ms = (time.perf_counter() - start) * 1000
+        RECORD_NODE("retrieve_docs", duration_ms)
+        # Retrieval summary: top 3 category + source + score
+        top_hits = [
+            f"#{i+1} {d.get('category','?')}/{os.path.basename(d.get('source',''))} "
+            f"(score={float(d.get('score',0.0)):.4f})"
+            for i, d in enumerate(docs[:3])
+        ]
+        logger.info(
+            "v [retrieve_docs] retrieved %d docs | duration %.2fms | Top3: %s",
+            hits, duration_ms, "; ".join(top_hits) if top_hits else "(empty)",
+        )
         before = [
             {
                 "doc_id": d.get("id", ""),
@@ -122,13 +230,17 @@ class RetrieveDocsNode:
                 search_filter=search_filter,
                 recalled=recalled,
                 hits=hits,
+                top1_score=round(top1_score, 4),
+                effective_threshold=threshold,
+                effective_count=effective_count,
+                effective_ratio=round(effective_count / max(hits, 1), 4),
                 before=before,
             )],
         }
 
 
 class RerankSequenceNode:
-    """重排 + 上下文组装（记录 before/after 对比）。"""
+    """Rerank + context assembly (records before/after comparison)."""
 
     def __init__(self, reranker: Reranker, final_top_k: int = 5, strategy: str = "none"):
         self.reranker = reranker
@@ -139,14 +251,20 @@ class RerankSequenceNode:
         start = time.perf_counter()
         docs = state.get("retrieved_docs", [])
         question = state["question"]
+        logger.info(
+            ">> [rerank_sequence] strategy=%s | final_top_k=%d | input %d docs",
+            self.strategy, self.final_top_k, len(docs),
+        )
 
         if not docs:
             duration_ms = (time.perf_counter() - start) * 1000
+            logger.info("s [rerank_sequence] skipped (no retrieved docs) | duration %.2fms", duration_ms)
+            RECORD_NODE("rerank_sequence", duration_ms)
             return {
                 "citations": [],
                 "trace": [_trace(
                     "rerank_sequence", "skipped", duration_ms,
-                    reason="无召回文档，跳过重排",
+                    reason="no retrieved docs, rerank skipped",
                     strategy=self.strategy,
                 )],
             }
@@ -162,6 +280,7 @@ class RerankSequenceNode:
 
         all_ranked = await self.reranker.rerank(question, docs, top_k=self.final_top_k)
         duration_ms = (time.perf_counter() - start) * 1000
+        RECORD_NODE("rerank_sequence", duration_ms)
 
         after_snapshot = [
             {
@@ -174,6 +293,22 @@ class RerankSequenceNode:
         ]
 
         ranked = all_ranked[:self.final_top_k]
+        # Rerank result summary
+        rank_summary = []
+        for i, d in enumerate(ranked):
+            old_rank = next(
+                (j + 1 for j, b in enumerate(before_snapshot) if b["doc_id"] == d.get("id")),
+                "-",
+            )
+            rank_summary.append(
+                f"#{i+1}(was#{old_rank}) {d.get('category','?')} "
+                f"score={float(d.get('rerank_score',0.0)):.3f}"
+            )
+        eliminated_ids = [d["doc_id"] for d in after_snapshot[self.final_top_k:]]
+        logger.info(
+            "v [rerank_sequence] output %d docs | duration %.2fms | Top: %s | eliminated %d",
+            len(ranked), duration_ms, "; ".join(rank_summary), len(eliminated_ids),
+        )
 
         before_ids = [d["doc_id"] for d in before_snapshot]
         after_ids = [d["doc_id"] for d in after_snapshot]
@@ -225,10 +360,11 @@ class RerankSequenceNode:
 
 
 class GenerateAnswerNode:
-    """生成带引用回答。"""
+    """Generate a cited answer."""
 
-    def __init__(self, llm: BaseLLMClient):
+    def __init__(self, llm: BaseLLMClient, cache: ExactCache | None = None):
         self.llm = llm
+        self.cache = cache
 
     async def __call__(self, state: GraphState) -> dict[str, Any]:
         start = time.perf_counter()
@@ -237,8 +373,12 @@ class GenerateAnswerNode:
         history = state.get("messages", [])
         citations = state.get("citations", [])
         intent = state.get("intent", "query")
+        logger.info(
+            ">> [generate_answer] intent=%s | context %d chunks | citations %d | history %d turns",
+            intent, len(docs), len(citations), len(history),
+        )
 
-        # ====== chitchat: 无上下文也让 LLM 直接回答 ======
+        # ====== chitchat: let the LLM answer directly even without context ======
         if intent == "chitchat":
             messages = [{"role": "system", "content": CHITCHAT_SYSTEM_PROMPT}]
             for m in history[-4:]:
@@ -254,6 +394,12 @@ class GenerateAnswerNode:
             resp = await self.llm.chat(messages, citations_hint=[])
             latency_ms = (time.perf_counter() - start) * 1000
             RECORD_LLM(latency_ms=latency_ms)
+            RECORD_NODE("generate_answer", latency_ms)
+            logger.info(
+                "v [generate_answer] chitchat | tokens=%d/%d | LLM latency %.0fms | total %.2fms",
+                resp["input_tokens"], resp["output_tokens"],
+                resp.get("latency_ms", 0), latency_ms,
+            )
             return {
                 "answer": resp["answer"],
                 "input_tokens": resp["input_tokens"],
@@ -271,18 +417,23 @@ class GenerateAnswerNode:
                 )],
             }
 
-        # ====== query/followup 但检索为空 ======
+        # ====== query/followup but retrieval is empty ======
         if not docs:
             duration_ms = (time.perf_counter() - start) * 1000
+            RECORD_NODE("generate_answer", duration_ms)
+            logger.info(
+                "s [generate_answer] LLM skipped (no context, saves Token) | duration %.2fms",
+                duration_ms,
+            )
             return {
-                "answer": "未找到相关知识，无法回答该问题。",
+                "answer": "No relevant knowledge found, unable to answer this question.",
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "latency_ms": 0.0,
-                "messages": [{"role": "assistant", "content": "未找到相关知识，无法回答该问题。"}],
+                "messages": [{"role": "assistant", "content": "No relevant knowledge found, unable to answer this question."}],
                 "trace": [_trace(
                     "generate_answer", "skipped", duration_ms,
-                    reason="无上下文，跳过 LLM 调用（节省 Token）",
+                    reason="no context, LLM call skipped (saves Token)",
                     intent=intent,
                 )],
             }
@@ -300,13 +451,28 @@ class GenerateAnswerNode:
                 messages.append({"role": role, "content": content})
         messages.append({
             "role": "system",
-            "content": f"检索到的上下文：\n{context}",
+            "content": f"Retrieved context:\n{context}",
         })
         messages.append({"role": "user", "content": question})
 
         resp = await self.llm.chat(messages, citations_hint=citations)
         latency_ms = (time.perf_counter() - start) * 1000
         RECORD_LLM(latency_ms=latency_ms)
+        RECORD_NODE("generate_answer", latency_ms)
+        answer_preview = (resp["answer"] or "").replace("\n", " ")[:80]
+        logger.info(
+            "v [generate_answer] RAG | tokens=%d/%d | LLM latency %.0fms | total %.2fms | answer: %.80s",
+            resp["input_tokens"], resp["output_tokens"],
+            resp.get("latency_ms", 0), latency_ms, answer_preview,
+        )
+
+        # Write to exact cache (only for successful query-intent RAG answers with docs)
+        if self.cache is not None and intent == "query" and resp.get("answer"):
+            self.cache.set(
+                question, state.get("user_group", "ops"),
+                resp["answer"], citations, content_type="general",
+            )
+
         return {
             "answer": resp["answer"],
             "input_tokens": resp["input_tokens"],
@@ -321,42 +487,60 @@ class GenerateAnswerNode:
                 input_tokens=resp["input_tokens"],
                 output_tokens=resp["output_tokens"],
                 llm_latency_ms=round(resp.get("latency_ms", 0.0), 3),
+                cached=bool(self.cache is not None and intent == "query"),
             )],
         }
 
 
 class EvaluateAnswerNode:
-    """在线轻量评估：LLM 自评 Faithfulness / Relevance / Hallucination。
+    """Online lightweight evaluation: LLM self-eval Faithfulness / Relevance / Hallucination.
 
-    三种场景：
-    1. chitchat → 跳过（无上下文，自评无意义）
-    2. 检索为空 → 跳过（无上下文可评估忠实度）
-    3. 正常 RAG → 调用 LLM 自评并记录分数
+    Three scenarios:
+    1. chitchat -> skip (no context, self-eval is meaningless)
+    2. empty retrieval -> skip (no context to evaluate faithfulness against)
+    3. normal RAG -> call LLM self-eval and record scores
     """
 
     def __init__(self, llm: BaseLLMClient):
         self.llm = llm
 
     async def __call__(self, state: GraphState) -> dict[str, Any]:
+        from app.config import get_settings
         start = time.perf_counter()
         intent = state.get("intent", "query")
         docs = state.get("retrieved_docs", [])
         answer = state.get("answer", "")
         question = state.get("question", "")
+        logger.info(">> [evaluate_answer] intent=%s | context %d | has_answer=%s",
+                    intent, len(docs), bool(answer))
 
         if intent == "chitchat":
             duration_ms = (time.perf_counter() - start) * 1000
+            logger.info("s [evaluate_answer] skipped (chitchat) | %.2fms", duration_ms)
+            RECORD_NODE("evaluate_answer", duration_ms)
             return {"trace": [_trace(
                 "evaluate_answer", "skipped", duration_ms,
-                reason="闲聊意图，无需评估忠实度",
+                reason="chitchat intent, no faithfulness evaluation needed",
                 intent=intent,
             )]}
 
-        if not docs or not answer or answer.startswith("未找到相关知识"):
+        if not get_settings().enable_online_eval:
             duration_ms = (time.perf_counter() - start) * 1000
+            logger.info("s [evaluate_answer] skipped (ENABLE_ONLINE_EVAL=false) | %.2fms", duration_ms)
+            RECORD_NODE("evaluate_answer", duration_ms)
             return {"trace": [_trace(
                 "evaluate_answer", "skipped", duration_ms,
-                reason="无上下文或无答案，无法评估",
+                reason="ENABLE_ONLINE_EVAL=false, off by default in production",
+                intent=intent,
+            )]}
+
+        if not docs or not answer or answer.startswith("No relevant knowledge"):
+            duration_ms = (time.perf_counter() - start) * 1000
+            logger.info("s [evaluate_answer] skipped (no context or no answer) | %.2fms", duration_ms)
+            RECORD_NODE("evaluate_answer", duration_ms)
+            return {"trace": [_trace(
+                "evaluate_answer", "skipped", duration_ms,
+                reason="no context or no answer, cannot evaluate",
                 intent=intent,
             )]}
 
@@ -365,13 +549,14 @@ class EvaluateAnswerNode:
             eval_messages = [
                 {"role": "system", "content": EVALUATE_SYSTEM_PROMPT},
                 {"role": "user", "content": (
-                    f"用户问题：{question}\n\n"
-                    f"检索到的上下文：\n{context}\n\n"
-                    f"助手的回答：\n{answer}"
+                    f"User question: {question}\n\n"
+                    f"Retrieved context:\n{context}\n\n"
+                    f"Assistant's answer:\n{answer}"
                 )},
             ]
             resp = await self.llm.chat(eval_messages, citations_hint=[])
             duration_ms = (time.perf_counter() - start) * 1000
+            RECORD_NODE("evaluate_answer", duration_ms)
 
             raw = resp.get("answer", "")
             json_match = re.search(r"\{[\s\S]*\}", raw)
@@ -400,7 +585,10 @@ class EvaluateAnswerNode:
                 relevancy=relevancy,
                 hallucination=hallucination,
             )
-
+            logger.info(
+                "v [evaluate_answer] faithfulness=%.2f | relevancy=%.2f | halluc=%.2f | duration %.2fms",
+                faithfulness, relevancy, hallucination, duration_ms,
+            )
             return {"trace": [_trace(
                 "evaluate_answer", "ok", duration_ms,
                 faithfulness=faithfulness,
@@ -412,7 +600,9 @@ class EvaluateAnswerNode:
 
         except Exception as exc:  # noqa: BLE001
             duration_ms = (time.perf_counter() - start) * 1000
+            logger.error("x [evaluate_answer] evaluation LLM call failed: %s | duration %.2fms", exc, duration_ms)
+            RECORD_NODE("evaluate_answer", duration_ms)
             return {"trace": [_trace(
                 "evaluate_answer", "error", duration_ms,
-                error=f"评估 LLM 调用失败: {exc}",
+                error=f"evaluation LLM call failed: {exc}",
             )]}

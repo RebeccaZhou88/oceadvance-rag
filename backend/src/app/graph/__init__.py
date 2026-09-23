@@ -1,1 +1,1 @@
-"""LangGraph 编排层：多轮对话状态与节点编排。"""
+"""LangGraph orchestration layer: multi-turn conversation state and node orchestration."""
