@@ -152,4 +152,5 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ## 📜 License
 
 All data included in this repository has been sanitized; no real credentials, customer data, or API keys are present.
-This project is licensed under the Apache-2.0 License - see the [LICENSE](LICENSE) file for details.
+
+Copyright 2025-2026 RebeccaZhou. Licensed under the Apache-2.0 License — see the [LICENSE](LICENSE) file and [NOTICE](NOTICE) for details.

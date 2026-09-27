@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: LangGraph nodes: cache lookup, intent, retrieve, rerank, answer, evaluate
+#              LangGraph 节点：缓存查找、意图识别、检索、重排、回答、评估
+
 """LangGraph node implementations.
 
 Each node is a callable class (__call__ is async), configured via __init__.

@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Pydantic-settings configuration: all environment variables typed
+#              Pydantic-settings 配置：全部环境变量类型化定义
+
 """Centralized configuration: loaded from environment variables, automatically falls back to an in-memory mock backend when Azure credentials are not configured."""
 import os
 from functools import lru_cache

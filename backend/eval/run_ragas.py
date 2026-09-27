@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Offline answer evaluation via Ragas
+#              基于 Ragas 的离线答案评估
+
 """RAGAS evaluation pipeline (design doc 5.3).
 
 Usage:

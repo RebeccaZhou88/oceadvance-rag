@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Permission filter: OData allowed_groups injection + leak assertion
+#              权限过滤：OData allowed_groups 注入与泄露断言
+
 """Document-level permission filtering based on user group.
 
 Design doc 3.3:

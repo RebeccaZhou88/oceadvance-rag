@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Pytest fixtures: test client & settings overrides
+#              Pytest fixtures：测试客户端与配置覆写
+
 """pytest global fixtures: uniformly inject import paths, ensuring any test file, any collection order can import.
 
 - backend/src: src-layout app package (pyproject's pythonpath only works for some invocation modes)

@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Chat & embedding clients: Azure OpenAI / DashScope / Mock
+#              对话与嵌入客户端：Azure OpenAI / DashScope / Mock
+
 """Azure OpenAI client wrapper, falls back to local Mock LLM when credentials not configured.
 
 Provides unified interface:

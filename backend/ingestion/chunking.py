@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Markdown/KQL document chunking with title-path context
+#              Markdown/KQL 文档分块：继承标题路径上下文
+
 """Chunking strategy v2 — semantic preservation first.
 
 Core design:

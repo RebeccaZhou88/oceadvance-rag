@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: LangGraph workflow: entry node, conditional edges, fallback assembly
+#              LangGraph 工作流：入口节点、条件边与降级组装
+
 """LangGraph workflow assembly and external call entry point.
 
 Flow:

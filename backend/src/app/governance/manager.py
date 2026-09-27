@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Governance trigger manager: async spawn with dedupe
+#              治理触发管理器：异步任务派生与去重
+
 """Governance orchestration: after the LangGraph main flow ends, perform conditional judgment and asynchronously trigger CrewAI governance.
 
 Responsibility boundaries:

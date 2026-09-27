@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Request/response Pydantic models
+#              请求/响应 Pydantic 模型
+
 """Request/response Pydantic models."""
 from datetime import datetime
 from typing import Optional

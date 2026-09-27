@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: GraphState TypedDict shared across nodes
+#              GraphState TypedDict：节点间共享状态定义
+
 """Conversation state definition (design doc 4.2)."""
 from __future__ import annotations
 

@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Chat API routes: RAG pipeline invocation & async governance trigger
+#              问答 API 路由：RAG 流程调用与异步治理触发
+
 """FastAPI routes: /chat /feedback /health /metrics."""
 import time
 from typing import TYPE_CHECKING

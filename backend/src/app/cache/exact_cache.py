@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Exact answer cache: SHA1 key, TTL tiers, kb_version isolation
+#              精确答案缓存：SHA1 键、TTL 分层与 kb_version 隔离
+
 """Exact cache (single-turn version).
 
 Key:   SHA-1 hash of the normalized user question, prefixed with cache version

@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Governance API: status, list, transitions, manual trigger
+#              治理 API：状态、列表、状态流转与手动触发
+
 """Knowledge base quality governance REST API: task list / status transitions / manual trigger."""
 from __future__ import annotations
 

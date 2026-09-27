@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: System prompts: RAG / chitchat / evaluation
+#              系统提示词：RAG / 闲聊 / 在线评估
+
 """Centralized LLM prompt templates.
 
 All prompts are strings with {placeholder}s filled in by callers.

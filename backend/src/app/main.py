@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: FastAPI application: logging bootstrap, lifespan, routers
+#              FastAPI 应用：日志初始化、lifespan 与路由挂载
+
 """FastAPI entry point: wires up routes, workflow, observability middleware, and static frontend."""
 import logging
 import os

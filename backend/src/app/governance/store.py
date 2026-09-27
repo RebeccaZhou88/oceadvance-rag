@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Governance task store: SQLite WAL mode with thread lock
+#              治理任务存储：SQLite WAL 模式与线程锁
+
 """Governance task store: SQLite persistence (task carrier for the question → discover gap → improve document closed loop).
 
 Thread-safe: single connection + Lock, all methods synchronous; caller wraps with asyncio.to_thread.

@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Pluggable rerankers: Cross-Encoder ONNX / LLM / Semantic / none
+#              可插拔重排器：Cross-Encoder ONNX / LLM / Semantic / none
+
 """Reranking module: supports three strategies.
 
 - none:            No reranking, directly take top final_top_k (still records metrics, latency=0)

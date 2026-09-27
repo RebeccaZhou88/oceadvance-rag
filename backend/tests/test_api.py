@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: API tests: chat pipeline, permissions, metrics
+#              API 测试：问答流程、权限过滤与指标
+
 """Core unit tests: permission filtering, Chunking, Mock retrieval, API end-to-end."""
 import os
 import sys

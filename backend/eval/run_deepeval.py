@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Offline answer evaluation via DeepEval
+#              基于 DeepEval 的离线答案评估
+
 """DeepEval evaluation pipeline (design doc 5.3).
 
 Usage:

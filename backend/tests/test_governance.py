@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Governance tests: store, state machine, trigger dedupe
+#              治理测试：任务存储、状态机与触发去重
+
 """Knowledge base document quality governance module tests:
 
 Covers four layers:

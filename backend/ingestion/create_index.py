@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: One-off Azure AI Search index creation with vector config
+#              Azure AI Search 索引创建（一次性）：含向量字段配置
+
 """Create/rebuild Azure AI Search index schema.
 
 Fields:

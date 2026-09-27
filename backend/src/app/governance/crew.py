@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: CrewAI sequential crew: Blind Spot / Doc Quality / Remediation agents
+#              CrewAI 顺序协作：盲区分析 / 文档质量 / 改进顾问三代理
+
 """CrewAI document quality governance crew: gap analysis → document quality assessment → improvement suggestions.
 
 Three agents with single responsibilities collaborating sequentially:

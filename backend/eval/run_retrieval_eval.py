@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Offline retrieval evaluation: precision / recall / MRR
+#              离线检索评估：准确率 / 召回率 / MRR
+
 """Offline retrieval evaluation — zero Chat LLM cost, deterministic, repeatable.
 
 Usage (under backend dir):

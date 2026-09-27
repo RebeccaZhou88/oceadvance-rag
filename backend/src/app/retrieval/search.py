@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Azure AI Search client: vector / hybrid (BM25+Vector+RRF) modes
+#              Azure AI Search 检索客户端：vector / hybrid（BM25+Vector+RRF）双模式
+
 """Hybrid retrieval module: Azure AI Search (BM25 + Vector + RRF) or local in-memory mock backend.
 
 Returns a unified structure: list[dict], each chunk contains

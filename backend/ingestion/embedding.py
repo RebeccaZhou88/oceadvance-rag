@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Shared embedding client for ingestion and query paths
+#              共享嵌入客户端：摄入与查询共用同一向量源
+
 """Embedding generation: batch call Azure OpenAI / Mock."""
 from __future__ import annotations
 

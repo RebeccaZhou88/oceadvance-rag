@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Prometheus metrics: node latency, cache-grouped P95, retrieval quality
+#              Prometheus 指标：节点延迟、缓存分组 P95、检索质量
+
 """Prometheus metric definitions and convenience recording functions.
 
 Covers design document section 6.1:

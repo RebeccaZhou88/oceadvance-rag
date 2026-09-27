@@ -1,3 +1,7 @@
+# @Author: RebeccaZhou
+# @Description: Document ingestion pipeline: chunk, embed, merge-or-upload to index
+#              文档摄入流水线：分块、嵌入并 merge-or-upload 上传索引
+
 """Index writer: Azure AI Search upload merge docs / local JSONL dump (Mock).
 
 Usage:
